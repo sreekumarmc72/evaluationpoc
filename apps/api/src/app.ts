@@ -1,4 +1,5 @@
 import express from 'express';
+import path from 'node:path';
 import multer from 'multer';
 import { isTerminal, uploadFields, selectableModels, type UploadField } from '@poc/shared';
 import type { EvaluationModel } from './model.js';
@@ -12,10 +13,11 @@ import { examFields, type RetainedExamStore } from './retained-exam.js';
 import type { ExamCatalog } from './exam-catalog.js';
 import { registerExamRoutes } from './exam-routes.js';
 
-type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number };
+type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string };
 export function createApp(options: Options) {
   const app = express();
   app.disable('x-powered-by');
+  const allowedOrigin = options.appOrigin ? new URL(options.appOrigin).origin : null;
   app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   // Same-origin writes only. CLI clients without Origin remain supported.
   app.use((req, _res, next) => {
@@ -23,7 +25,8 @@ export function createApp(options: Options) {
     if (origin && !['GET', 'HEAD'].includes(req.method)) {
       try {
         const url = new URL(origin);
-        if (!['localhost', '127.0.0.1'].includes(url.hostname) || !['http:', 'https:'].includes(url.protocol)) return next(new AppError('ORIGIN_REJECTED', 'Only local application requests are accepted.', 403));
+        const allowed = allowedOrigin ? url.origin === allowedOrigin : ['localhost', '127.0.0.1'].includes(url.hostname) && ['http:', 'https:'].includes(url.protocol);
+        if (!allowed) return next(new AppError('ORIGIN_REJECTED', 'Requests must come from the configured application origin.', 403));
       } catch { return next(new AppError('ORIGIN_REJECTED', 'Invalid request origin.', 403)); }
     }
     next();
@@ -99,6 +102,13 @@ export function createApp(options: Options) {
     void options.store.read(req.params.id, 'answerSheet').then(bytes => { res.type('application/pdf').set('Content-Disposition', 'inline; filename="answer-sheet.pdf"').send(bytes); }).catch(next);
   });
   if (options.examCatalog) registerExamRoutes(app, { ...options, examCatalog: options.examCatalog });
+  if (options.webRoot) {
+    const webRoot = path.resolve(options.webRoot);
+    app.use(express.static(webRoot, { index: false, dotfiles: 'deny' }));
+    app.get(['/', '/faculty', '/faculty/', '/student', '/student/'], (_req, res, next) => {
+      res.sendFile(path.join(webRoot, 'index.html'), error => { if (error) next(error); });
+    });
+  }
   app.use((_req, _res, next) => next(new AppError('NOT_FOUND', 'API endpoint not found.', 404)));
   app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     const safe = error instanceof multer.MulterError

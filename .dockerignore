@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/dist
+.env
+.env.*
+.local-data
+.local-exam
+.tmp
+output
+coverage
+baseline-output
+**/*.pdf
+**/*.docx
+**/*.log

@@ -174,3 +174,7 @@ For connection diagnosis, run `npm run connectivity`. It checks the backend, the
 - [PDF input](https://developers.openai.com/api/docs/guides/file-inputs)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [GPT-6 Sol model](https://developers.openai.com/api/docs/models/gpt-6-sol)
+# Railway hosting
+
+See [the Railway deployment checklist](docs/railway-deployment.md) for signup, repository access, public URLs, environment variables, persistent storage, free-trial limitations and launch verification. The Dockerfile builds React and runs it with Express as one service; `railway.json` configures its deployment health check.
+

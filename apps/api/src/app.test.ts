@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { PDFDocument } from 'pdf-lib';
-import { mkdtemp, access } from 'node:fs/promises';
+import { mkdtemp, access, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createApp } from './app.js';
@@ -25,6 +25,26 @@ async function finished(app: ReturnType<typeof createApp>, id: string) {
 beforeEach(async () => { root = await mkdtemp(path.join(tmpdir(), 'evaluation-test-')); store = new RunStore(root, 3600000); const doc = await PDFDocument.create(); doc.addPage(); pdf = Buffer.from(await doc.save()); });
 afterEach(async () => { await store.dispose(); });
 describe('Evaluation API', () => {
+  it('serves all production pages and assets without exposing API fallbacks or local documents', async () => {
+    const webRoot = path.join(root, 'web');
+    await mkdir(path.join(webRoot, 'assets'), { recursive: true });
+    await writeFile(path.join(webRoot, 'index.html'), '<html>Paperwise app</html>');
+    await writeFile(path.join(webRoot, 'assets', 'app.js'), 'console.log("app");');
+    await writeFile(path.join(root, 'secret.pdf'), 'private document');
+    const app = createApp({ store, model: fakeModel(), modelId: 'test-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, webRoot, appOrigin: 'https://paperwise.up.railway.app' });
+    for (const route of ['/', '/faculty', '/faculty/', '/student', '/student/']) {
+      const page = await request(app).get(route);
+      expect(page.status).toBe(200); expect(page.text).toContain('Paperwise app');
+    }
+    expect((await request(app).get('/assets/app.js')).status).toBe(200);
+    expect((await request(app).get('/api/health')).body.ok).toBe(true);
+    for (const route of ['/api/unknown', '/secret.pdf', '/.env', '/exams/secret.pdf', '/unrecognised-page']) {
+      expect((await request(app).get(route)).status).toBe(404);
+    }
+    expect((await request(app).post('/api/evaluations').set('Origin', 'https://paperwise.up.railway.app')).status).toBe(400);
+    expect((await request(app).post('/api/evaluations').set('Origin', 'https://other.up.railway.app')).status).toBe(403);
+    expect((await request(app).post('/api/evaluations').set('Origin', 'http://localhost:5173')).status).toBe(403);
+  });
   it('retains exam PDFs for sheet-only submissions, supports replacement and clearing, and leaves invalid replacements untouched', async () => {
     const retainedExam = new RetainedExamStore(path.join(root, 'saved-exam'));
     const model = fakeModel();
