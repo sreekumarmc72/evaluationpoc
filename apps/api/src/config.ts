@@ -1,0 +1,14 @@
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'node:url';
+dotenv.config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)), quiet: true } as dotenv.DotenvConfigOptions);
+function positive(name: string, fallback: number) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`);
+  return value;
+}
+export const config = {
+  apiKey: process.env.OPENAI_API_KEY?.trim() ?? '', model: process.env.OPENAI_MODEL?.trim() ?? '',
+  port: positive('PORT', 3001), timeout: positive('MODEL_TIMEOUT_MS', 180000),
+  maxBytes: positive('MAX_FILE_MB', 10) * 1024 * 1024,
+  maxPages: positive('MAX_PDF_PAGES', 10), retentionMs: positive('RETENTION_MS', 3600000),
+};

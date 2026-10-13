@@ -1,0 +1,33 @@
+{
+  "name": "answer-sheet-evaluation-poc",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev -w @poc/api\" \"npm run dev -w @poc/web\"",
+    "build": "npm run build -w @poc/shared && npm run build -w @poc/api && npm run build -w @poc/web",
+    "typecheck": "tsc --noEmit -p apps/api && tsc --noEmit -p apps/web",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "start": "npm run start -w @poc/api",
+    "smoke": "npm run smoke -w @poc/api",
+    "connectivity": "npm run connectivity -w @poc/api",
+    "baseline": "npm run baseline -w @poc/api"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.11",
+    "vite": "^6.4.4"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
+  "overrides": {
+    "katex": "0.18.2"
+  }
+}

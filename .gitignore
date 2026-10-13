@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+coverage/
+.tmp/
+.local-exam/
+.local-data/
+*.log
+baseline-output/
+output/
+*.pdf
+*.docx
+output/calibration-*/report.json
+output/calibration-*/UI-result.jpg
+

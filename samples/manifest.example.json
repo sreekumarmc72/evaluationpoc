@@ -1,0 +1,11 @@
+{
+  "questionPaper": "question-paper.pdf",
+  "answerKey": "answer-key.pdf",
+  "cases": [
+    { "name": "Clear handwriting and correct answers", "answerSheet": "clear-correct.pdf", "referenceAnswers": [{ "identifier": "1", "text": "REPLACE with human transcription for every question", "marks": 0 }] },
+    { "name": "Equivalent wording and partial credit", "answerSheet": "equivalent-partial.pdf", "referenceAnswers": [{ "identifier": "1", "text": "REPLACE with human transcription for every question", "marks": 0 }] },
+    { "name": "Correct and incorrect mathematical steps", "answerSheet": "maths.pdf", "referenceAnswers": [{ "identifier": "1", "text": "REPLACE with human transcription for every question", "marks": 0 }] },
+    { "name": "Page continuations and skipped questions", "answerSheet": "continuations.pdf", "referenceAnswers": [{ "identifier": "1", "text": "REPLACE with human transcription for every question", "marks": 0 }] },
+    { "name": "Poor scan and ambiguous symbols", "answerSheet": "ambiguous.pdf", "referenceAnswers": [{ "identifier": "1", "text": "REPLACE with human transcription for every question", "marks": null }] }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "name": "@poc/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc",
+    "start": "tsx src/server.ts",
+    "smoke": "tsx src/scripts/smoke.ts",
+    "connectivity": "tsx src/scripts/connectivity.ts",
+    "baseline": "tsx src/scripts/baseline.ts"
+  },
+  "dependencies": {
+    "@poc/shared": "*",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^2.0.2",
+    "openai": "^6.0.0",
+    "pdf-lib": "^1.17.1",
+    "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.0.0",
+    "@types/supertest": "^6.0.2",
+    "supertest": "^7.0.0"
+  }
+}

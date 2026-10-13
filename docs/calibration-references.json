@@ -1,0 +1,223 @@
+{
+  "policyVersion": "accounting-teacher-v1",
+  "provenance": "Teacher supplied question marks. Transcriptions checked by Codex against the scan renderings; these are not independently supplied human transcriptions. Original June labels and incorrect amounts retained. The full-sheet ambiguous 5/6 label and following disposal page are manually associated with question 5 using subject and page continuity.",
+  "cases": [
+    {
+      "name": "reference-full",
+      "referenceTranscription": {
+        "answers": [
+          {
+            "identifier": "1",
+            "text": "[Source label 1(i)]\nDate | particulars | LF | Debit Amount | Credit Amount\nPurchase A/c Dr | 2,70,000 |\nInput CGST A/c Dr | 16,200 |\nInput SGST A/c Dr | 16,200 |\nTo Sonu A/c | | 3,02,400\n(Purchase goods from Sonu at 10% discount and [crossed out: illegible] GST paid)\n\n[Source label 1(ii)]\nMohit A/c Dr | 66,000 |\nBank A/c Dr | 44,000 |\nto Sale A/c | | 1,00,000\noutput CGST A/c | | 5000\noutput SGST | | 5000\n(Sold goods to Mohit and collect GST)\n\n[Source label 1(iii)]\nDrawings A/c Dr | 28,000 |\nto Purchase A/c | | 25,000\nInput CGST | | 1,500\nInput SGST | | 1,500\n(Good withdrawn for personal use and reversal of GST)\n\n[Source label 1(iv)]\nMachinery A/c Dr | 2,00,000 |\nInput CGST A/c Dr | 18,000 |\nInput SGST A/c Dr | 18,000 |\nto Bank A/c | | 1,00,000\nM/s Bright Industries | | 1,36,000\n(Purchased machinery from M/s Bright Industries and 1,00,000 paid immediately)",
+            "sourcePages": [
+              1,
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-1",
+            "uncertainties": []
+          },
+          {
+            "identifier": "2",
+            "text": "B (1,81,400)",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-2",
+            "uncertainties": []
+          },
+          {
+            "identifier": "3",
+            "text": "B (SLM)",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-3",
+            "uncertainties": []
+          },
+          {
+            "identifier": "4",
+            "text": "trial balance\nLedger A/c | Dr | Cr\nCost of Goods sold | 7,50,000 |\nClosing stock | 1,20,000 |\nSundry debtors | 1,80,000 |\nSundry Creditors | | 90,000\nFixed assets | 1,50,000 |\nExpenses | 60,000 | [crossed out: 60,000]\nSales | | 9,00,000\nCapital | | 2,70,000\nTotal | 12,60,000 | 12,60,000",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-4",
+            "uncertainties": []
+          },
+          {
+            "identifier": "5",
+            "text": "Machinery A/c\nDate | Particular | Amount | Date | Particular | Amount\n1/1/2020 | Cash | 40,000 | 31/12/20 | Depreciation; $40,000 \\times 10\\%$ | 4,000\n | | | 〃 | balance c/d | 36,000\n | Total | 40,000 | | Total | 40,000\n1/1/21 | balance b/d | 36,000 | 31/12/21 | Depreciation; $5400 + 750$ | 6,150\n1/6/21 | Cash | 10,000 | 〃 | balance c/d | 39,850\n | Total | 46,000 | | Total | 46,000\n1/1/22 | balance b/d | 39,850 | 1/6/22 | deprication | 2295\n1/6/22 | Cash | 25,000 | 〃 | Cash | 28,000\n | | | 〃 | P & L A/c | 305\n | | | 31/12/22 | deprication; $1388 + 1875$ [overwritten marks after 1388: illegible] | 3263\n | | | 〃 | balance c/d | 30,987\n | Total | 64,850 | | Total | 64,850\n1/1/23 | balance b/d | 30,987 | 1/6/23 | deprication | 590\n | | | 〃 | Cash | 2000\n | | | 〃 | P & L A/c | 5,272\n | | | 31/12/23 | deprication | 3469\n | | | 〃 | [crossed out: 3469] [crossed-out mark: illegible] balance c/d | 19,656\n | Total | 30,987 | | Total | 30,987",
+            "sourcePages": [
+              3
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-5",
+            "uncertainties": []
+          },
+          {
+            "identifier": "5",
+            "text": "Calculation of profit or loss on sale of asset\nPurchase price = 40,000\n(−) 1st year deprication = 4000\n36,000\n(−) 2nd year deprication 5,400 $(36000 \\times 15\\%)$\n30,600\n(−) 3rd year deprication (½ year) 2295 $(30,600 \\times 15\\% \\times \\frac{6}{12})$\nBook value of asset 28,305\nSold price 28,000\nloss 305\n\nPurchase price = [crossed out: 10,000] 10,000\n(−) 1st year deprication (½ year 750\n9250\n(−) 2nd year deprication 1388\n7,862\n(−) 3rd year deprication (½ year) 590\nBook value of Asset 7,272\n(−) Sold price 2000\nloss 5,272",
+            "sourcePages": [
+              4
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-6",
+            "uncertainties": []
+          }
+        ],
+        "pagesRead": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "allPagesRead": true,
+        "warnings": [
+          "All four page images were inspected in full. No machine-readable PDF text was available.",
+          "Faint reverse-side show-through is visible on the scans.",
+          "Accounting tables are transcribed using vertical bars to preserve column associations.",
+          "Transcribed subpart 1(i) is included in aggregate scoring unit 1.",
+          "Transcribed subpart 1(ii) is included in aggregate scoring unit 1.",
+          "Transcribed subpart 1(iii) is included in aggregate scoring unit 1.",
+          "Transcribed subpart 1(iv) is included in aggregate scoring unit 1."
+        ]
+      },
+      "referenceAnswers": [
+        {
+          "identifier": "1",
+          "text": "[Source label 1(i)]\nDate | particulars | LF | Debit Amount | Credit Amount\nPurchase A/c Dr | 2,70,000 |\nInput CGST A/c Dr | 16,200 |\nInput SGST A/c Dr | 16,200 |\nTo Sonu A/c | | 3,02,400\n(Purchase goods from Sonu at 10% discount and [crossed out: illegible] GST paid)\n\n[Source label 1(ii)]\nMohit A/c Dr | 66,000 |\nBank A/c Dr | 44,000 |\nto Sale A/c | | 1,00,000\noutput CGST A/c | | 5000\noutput SGST | | 5000\n(Sold goods to Mohit and collect GST)\n\n[Source label 1(iii)]\nDrawings A/c Dr | 28,000 |\nto Purchase A/c | | 25,000\nInput CGST | | 1,500\nInput SGST | | 1,500\n(Good withdrawn for personal use and reversal of GST)\n\n[Source label 1(iv)]\nMachinery A/c Dr | 2,00,000 |\nInput CGST A/c Dr | 18,000 |\nInput SGST A/c Dr | 18,000 |\nto Bank A/c | | 1,00,000\nM/s Bright Industries | | 1,36,000\n(Purchased machinery from M/s Bright Industries and 1,00,000 paid immediately)",
+          "marks": 6
+        },
+        {
+          "identifier": "2",
+          "text": "B (1,81,400)",
+          "marks": 2
+        },
+        {
+          "identifier": "3",
+          "text": "B (SLM)",
+          "marks": 2
+        },
+        {
+          "identifier": "4",
+          "text": "trial balance\nLedger A/c | Dr | Cr\nCost of Goods sold | 7,50,000 |\nClosing stock | 1,20,000 |\nSundry debtors | 1,80,000 |\nSundry Creditors | | 90,000\nFixed assets | 1,50,000 |\nExpenses | 60,000 | [crossed out: 60,000]\nSales | | 9,00,000\nCapital | | 2,70,000\nTotal | 12,60,000 | 12,60,000",
+          "marks": 5
+        },
+        {
+          "identifier": "5",
+          "text": "Machinery A/c\nDate | Particular | Amount | Date | Particular | Amount\n1/1/2020 | Cash | 40,000 | 31/12/20 | Depreciation; $40,000 \\times 10\\%$ | 4,000\n | | | 〃 | balance c/d | 36,000\n | Total | 40,000 | | Total | 40,000\n1/1/21 | balance b/d | 36,000 | 31/12/21 | Depreciation; $5400 + 750$ | 6,150\n1/6/21 | Cash | 10,000 | 〃 | balance c/d | 39,850\n | Total | 46,000 | | Total | 46,000\n1/1/22 | balance b/d | 39,850 | 1/6/22 | deprication | 2295\n1/6/22 | Cash | 25,000 | 〃 | Cash | 28,000\n | | | 〃 | P & L A/c | 305\n | | | 31/12/22 | deprication; $1388 + 1875$ [overwritten marks after 1388: illegible] | 3263\n | | | 〃 | balance c/d | 30,987\n | Total | 64,850 | | Total | 64,850\n1/1/23 | balance b/d | 30,987 | 1/6/23 | deprication | 590\n | | | 〃 | Cash | 2000\n | | | 〃 | P & L A/c | 5,272\n | | | 31/12/23 | deprication | 3469\n | | | 〃 | [crossed out: 3469] [crossed-out mark: illegible] balance c/d | 19,656\n | Total | 30,987 | | Total | 30,987\n\nCalculation of profit or loss on sale of asset\nPurchase price = 40,000\n(−) 1st year deprication = 4000\n36,000\n(−) 2nd year deprication 5,400 $(36000 \\times 15\\%)$\n30,600\n(−) 3rd year deprication (½ year) 2295 $(30,600 \\times 15\\% \\times \\frac{6}{12})$\nBook value of asset 28,305\nSold price 28,000\nloss 305\n\nPurchase price = [crossed out: 10,000] 10,000\n(−) 1st year deprication (½ year 750\n9250\n(−) 2nd year deprication 1388\n7,862\n(−) 3rd year deprication (½ year) 590\nBook value of Asset 7,272\n(−) Sold price 2000\nloss 5,272",
+          "marks": 10
+        }
+      ]
+    },
+    {
+      "name": "reference-partial",
+      "referenceTranscription": {
+        "answers": [
+          {
+            "identifier": "1",
+            "text": "Journal entries in the books of Manish\n\nSl No | Particulars | Dr | Cr\n i) | Purchase a/c Dr. | 2,70,000 |\n | Input CGST Dr | 16,200 |\n | Input SGST Dr | 16,200 |\n | To Sonu's a/c | | 3,02,400\n[Being goods purchased from sonu]\n\n ii) | Mohit a/c Dr | 66,000 |\n | Bank a/c Dr | 44,000 |\n | To sales a/c | | 1,00,000\n | To output CGST | | 5000\n | To output SGST | | 5000\n[Being goods sold to mohit]\n\n iii) | Drawings a/c Dr | 28000 |\n | To purchase a/c | | 25,000\n | To input CGST | | 1500\n | To input SGST | | 1500\n[Being goods withdrawn for personal use]\n\n iv) | Machinery a/c Dr | 2,00,000 |\n | Input CGST Dr | 18,000 |\n | Input SGST Dr | 18,000 |\n | To M/s Bright industry a/c | | 1,36,000\n | To Bank a/c. | | 1,00,000\n[Being goods purchased from M/s Bright industries.",
+            "sourcePages": [
+              1
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-1",
+            "uncertainties": []
+          },
+          {
+            "identifier": "2",
+            "text": "$\\text{Price of machine} = 8,90,000$\n$(+)\\ \\text{Freight & cartage} = 7000$\n$(+)\\ \\text{Installation charges} = 30,000$\n$(+)\\ \\text{Insurance charges} = 20,000$\n[Crossed out: $(−)\\ \\text{Residual value} = (40,000)$]\n$\\text{Total value of machine} = 9,47,000$\n\n$$\\therefore\\ \\text{Depreciation amount} = \\frac{\\text{Cost of machine} - \\text{Residual value}}{\\text{Estimated useful life}}$$\n$$= \\frac{9,47,000 - 40,000}{5}$$\n$$= ₹\\ 1,81,400$$",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-2",
+            "uncertainties": []
+          },
+          {
+            "identifier": "3",
+            "text": "b) SLM.",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-3",
+            "uncertainties": []
+          },
+          {
+            "identifier": "4",
+            "text": "Trial Balance of MM Bakery:\n\nSl No | Ledger Accounts | Dr | Cr\n i) | Cost of goods sold | 7,50,000 |\n ii) | Closing stock | 1,20,000 |\n iii) | Sundry debtors | 1,80,000 |\n iv) | Fixed assets | 1,50,000 |\n v) | Sundry creditors | | 90,000\n vi) | Opening stock | 1,80,000 |\n vii) | Expenses | 60,000 |\n viii) | Sales | | 9,00,000\n ix) | Capital | | 2,70,000\n x) | Suspense account | | 1,80,000\n | | 14,40,000 | 14,40,000",
+            "sourcePages": [
+              2
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-4",
+            "uncertainties": []
+          },
+          {
+            "identifier": "5",
+            "text": "Machinery a/c\n\nDate | Particulars | Amount | Date | Particulars | Amount\n1/1/2020 | To Bank | 40,000 | 31/12/2020 | By depreciation | 4000\n[Crossed out: 1/7/2020 | To Bank | 10,000] | | | | By balance b/d | 36,000\n | | 40,000 | | | 40,000\n\n1/1/21 | To balance b/d | 36,000 | 31/12/21 | By depreciation | 5,400\n1/7/21 | To Bank | 10,000 | | By depreciation | 750\n | | | | By balance b/d | 39,850\n | | 46,000 | | | 46,000\n\n1/1/22 | To balance c/d | 39,850 | 1/7/22 | By sales | 28,000\n1/7/22 | To Bank a/c | 25,000 | 1/7/22 | By loss on sale | 2600\n | | | 31/12/22 | By depreciation | 1397.5\n | | | | By depreciation | 1875\n | | | | By balance b/d | 30987.5\n | | 64,850 | | | 64,850\n\n1/1/23 | To balance c/d | 30988 | 1/7/23 | By sales | 2000\n | | | 1/7/23 | By loss on sale | 5862\n | | | 31/12/23 | By depreciation | 3469\n | | | | By balance b/d | 19,657\n | | 30,989 | | | 30,989",
+            "sourcePages": [
+              3
+            ],
+            "uncertaintyNotes": [],
+            "unsupportedContent": false,
+            "entryId": "entry-5",
+            "uncertainties": []
+          }
+        ],
+        "pagesRead": [
+          1,
+          2,
+          3
+        ],
+        "allPagesRead": true,
+        "warnings": [
+          "All three page images were inspected in full. No machine-parsed text was available.",
+          "The scans contain faint reverse-side show-through. Foreground answer content was transcribed; page headings and administrative metadata were excluded.",
+          "Hand-drawn accounting tables are represented using text columns."
+        ]
+      },
+      "referenceAnswers": [
+        {
+          "identifier": "1",
+          "text": "Journal entries in the books of Manish\n\nSl No | Particulars | Dr | Cr\n i) | Purchase a/c Dr. | 2,70,000 |\n | Input CGST Dr | 16,200 |\n | Input SGST Dr | 16,200 |\n | To Sonu's a/c | | 3,02,400\n[Being goods purchased from sonu]\n\n ii) | Mohit a/c Dr | 66,000 |\n | Bank a/c Dr | 44,000 |\n | To sales a/c | | 1,00,000\n | To output CGST | | 5000\n | To output SGST | | 5000\n[Being goods sold to mohit]\n\n iii) | Drawings a/c Dr | 28000 |\n | To purchase a/c | | 25,000\n | To input CGST | | 1500\n | To input SGST | | 1500\n[Being goods withdrawn for personal use]\n\n iv) | Machinery a/c Dr | 2,00,000 |\n | Input CGST Dr | 18,000 |\n | Input SGST Dr | 18,000 |\n | To M/s Bright industry a/c | | 1,36,000\n | To Bank a/c. | | 1,00,000\n[Being goods purchased from M/s Bright industries.",
+          "marks": 6
+        },
+        {
+          "identifier": "2",
+          "text": "$\\text{Price of machine} = 8,90,000$\n$(+)\\ \\text{Freight & cartage} = 7000$\n$(+)\\ \\text{Installation charges} = 30,000$\n$(+)\\ \\text{Insurance charges} = 20,000$\n[Crossed out: $(−)\\ \\text{Residual value} = (40,000)$]\n$\\text{Total value of machine} = 9,47,000$\n\n$$\\therefore\\ \\text{Depreciation amount} = \\frac{\\text{Cost of machine} - \\text{Residual value}}{\\text{Estimated useful life}}$$\n$$= \\frac{9,47,000 - 40,000}{5}$$\n$$= ₹\\ 1,81,400$$",
+          "marks": 2
+        },
+        {
+          "identifier": "3",
+          "text": "b) SLM.",
+          "marks": 2
+        },
+        {
+          "identifier": "4",
+          "text": "Trial Balance of MM Bakery:\n\nSl No | Ledger Accounts | Dr | Cr\n i) | Cost of goods sold | 7,50,000 |\n ii) | Closing stock | 1,20,000 |\n iii) | Sundry debtors | 1,80,000 |\n iv) | Fixed assets | 1,50,000 |\n v) | Sundry creditors | | 90,000\n vi) | Opening stock | 1,80,000 |\n vii) | Expenses | 60,000 |\n viii) | Sales | | 9,00,000\n ix) | Capital | | 2,70,000\n x) | Suspense account | | 1,80,000\n | | 14,40,000 | 14,40,000",
+          "marks": 1
+        },
+        {
+          "identifier": "5",
+          "text": "Machinery a/c\n\nDate | Particulars | Amount | Date | Particulars | Amount\n1/1/2020 | To Bank | 40,000 | 31/12/2020 | By depreciation | 4000\n[Crossed out: 1/7/2020 | To Bank | 10,000] | | | | By balance b/d | 36,000\n | | 40,000 | | | 40,000\n\n1/1/21 | To balance b/d | 36,000 | 31/12/21 | By depreciation | 5,400\n1/7/21 | To Bank | 10,000 | | By depreciation | 750\n | | | | By balance b/d | 39,850\n | | 46,000 | | | 46,000\n\n1/1/22 | To balance c/d | 39,850 | 1/7/22 | By sales | 28,000\n1/7/22 | To Bank a/c | 25,000 | 1/7/22 | By loss on sale | 2600\n | | | 31/12/22 | By depreciation | 1397.5\n | | | | By depreciation | 1875\n | | | | By balance b/d | 30987.5\n | | 64,850 | | | 64,850\n\n1/1/23 | To balance c/d | 30988 | 1/7/23 | By sales | 2000\n | | | 1/7/23 | By loss on sale | 5862\n | | | 31/12/23 | By depreciation | 3469\n | | | | By balance b/d | 19,657\n | | 30,989 | | | 30,989",
+          "marks": 4
+        }
+      ]
+    }
+  ]
+}

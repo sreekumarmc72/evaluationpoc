@@ -1,0 +1,42 @@
+{
+  "version": "accounting-teacher-v1",
+  "generalRules": [
+    "Grade the final answer and demonstrated method. Ignore readable corrections, crossed-out drafts, abbreviated narration and harmless presentation differences.",
+    "Use semantic equivalence and consistent rounding. Do not penalise the same originating error repeatedly; subsequent correct method using carried-forward figures can earn credit.",
+    "Do not treat missing disposal depreciation, wrong methods, unsupported balancing entries or unrelated arithmetic mistakes as rounding.",
+    "Calibration scores are holistic teacher examples, not invented submark allocations. Compare the answer's evidence and errors with the examples, not its filename or identity."
+  ],
+  "examConventions": [
+    "Q1 (6 marks): grade accounts, debit/credit treatment, amounts and GST. Abbreviated narration is acceptable. In Q1(ii), 40% is received by cheque and Bank is debited 44,000; replace the original key narration's word cash with cheque.",
+    "Q2 and Q3 (2 marks each): accept the correct option, answer text, or both. Working is not required. Q2: B / 1,81,400. Q3: B / SLM.",
+    "Q4 (5 marks): the teacher-approved redrafted trial balance omits a separate opening-stock entry and totals 12,60,000 on each side. Accept Expenses as equivalent to Wages, Salaries and other expenses. This is an exam-specific marking convention; the paper's separate opening-stock entry is an unresolved source discrepancy, not an independently established accounting correction.",
+    "Q5 (10 marks): retain all exact and consistent whole-rupee alternatives in the revised solution. Accept separate disposal and year-end depreciation credits, alternate ledger layouts and supporting workings on following pages.",
+    "Q5: a June-versus-July ledger date-label slip alone does not lose marks when the calculations clearly use the required six-month period and correct transaction sequence. Note the slip. Deduct when the actual time apportionment is wrong."
+  ],
+  "teacherCalibration": [
+    {
+      "questionId": "4",
+      "marks": 5,
+      "evidence": "Corrected trial balance: COGS 7,50,000, closing stock 1,20,000, debtors 1,80,000, fixed assets 1,50,000 and expenses 60,000 are debits. Creditors 90,000, sales 9,00,000 and capital 2,70,000 are credits. No separate opening stock or suspense. Both totals 12,60,000.",
+      "explanation": "Matches the teacher-approved solution."
+    },
+    {
+      "questionId": "4",
+      "marks": 1,
+      "evidence": "Correct side changes, but opening stock 1,80,000 is retained as a debit, a new suspense credit 1,80,000 is introduced and both totals become 14,40,000.",
+      "explanation": "Teacher awarded limited credit for correct classifications; the intended redraft and balancing treatment are incorrect under this exam's convention."
+    },
+    {
+      "questionId": "5",
+      "marks": 10,
+      "evidence": "Capitalised cost 40,000; 2020 depreciation 4,000 and balance 36,000; 2021 depreciation 6,150 and balance 39,850. 2022 disposal depreciation 2,295, proceeds 28,000, loss 305; retained-machine depreciation 1,388 + 1,875 = 3,263, balance 30,987. 2023 disposal depreciation 590, proceeds 2,000, loss 5,272; retained-machine depreciation 3,469 and closing balance 19,656. Workings show the correct six-month periods.",
+      "explanation": "Correct method, transactions, disposals and consistent whole-rupee rounding."
+    },
+    {
+      "questionId": "5",
+      "marks": 4,
+      "evidence": "2020 and 2021 treatment correct; later purchases and sale proceeds recorded. First disposal depreciation 2,295 omitted and loss shown as 2,600. 2022 depreciation on the second machine shown as 1,397.50 rather than 1,387.50; new-machine depreciation 1,875 is correct. Second disposal depreciation omitted and loss shown as 5,862. 2023 retained-machine depreciation approximately 3,469; closing balance written 19,657, with inconsistent totals.",
+      "explanation": "Teacher awarded method credit for substantial correct early work and transactions, but both disposal treatments are substantively wrong. Do not award full credit merely because a closing balance resembles the key."
+    }
+  ]
+}
