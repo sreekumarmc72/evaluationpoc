@@ -90,6 +90,7 @@ export type Usage = z.infer<typeof UsageSchema>;
 export const PreparedExamSchema = z.object({
   id: z.string().uuid(), name: z.string().trim().min(1).max(120), version: z.number().int().positive(),
   status: z.enum(['preparing', 'ready', 'failed']), model: z.enum(['gpt-6.1-sol', 'sol-ultrafast']),
+  preparationModel: z.enum(['gpt-6.1-sol', 'sol-ultrafast']).optional(),
   createdAt: z.number(), finishedAt: z.number().nullable(),
   documents: z.object({ questionPaper: z.object({ name: z.string(), pages: z.number(), sha256: z.string() }), answerKey: z.object({ name: z.string(), pages: z.number(), sha256: z.string() }) }),
   questionCount: z.number().int(), maximumMarks: z.number(), usage: UsageSchema, durationMs: z.number(),

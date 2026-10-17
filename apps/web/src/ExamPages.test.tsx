@@ -59,6 +59,22 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('edits the model from the details popup and displays the persisted selection', async () => {
+    const updated = { ...exam(), model: 'sol-ultrafast' as const, preparationModel: 'gpt-6.1-sol' as const };
+    const mock = vi.fn(async (url: string, init?: RequestInit) => response(init?.method === 'PATCH' ? { metadata: updated } : url === '/api/exams' ? { exams: [exam()] } : { metadata: exam(), specification }));
+    vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
+    fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByRole('heading', { name: 'Evaluation model' })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Edit model' }));
+    fireEvent.change(within(dialog).getByLabelText('Choose evaluation model'), { target: { value: 'sol-ultrafast' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save model' }));
+    await within(dialog).findByText('Model updated. New student submissions will use this model.');
+    const call = mock.mock.calls.find(([, init]) => init?.method === 'PATCH')!;
+    expect(call[0]).toBe(`/api/exams/${id}/model`); expect(JSON.parse(call[1]!.body as string)).toEqual({ model: 'sol-ultrafast' });
+    expect(screen.getByText(/Sol Ultrafast ·/)).toBeInTheDocument();
+    expect(within(dialog).queryByRole('combobox')).not.toBeInTheDocument();
+  });
   it('filters exams by name or ID and reports an empty search result', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ exams: [exam(), { ...exam(), id: '22222222-2222-4222-8222-222222222222', name: 'Business mathematics' }] })));
     render(<FacultyPage />); await screen.findByText('Business mathematics');

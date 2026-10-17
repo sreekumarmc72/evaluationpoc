@@ -60,8 +60,17 @@ function ActionIcon({ kind }: { kind: 'copy' | 'open' | 'rubric' | 'check' | 'cl
   const paths = { copy: 'M9 9h11v11H9z M5 15H3V3h12v2', open: 'M14 3h7v7 M21 3L10 14 M10 3H3v18h18v-7', rubric: 'M6 3h9l4 4v14H6z M14 3v5h5 M9 12h7 M9 16h7', check: 'M5 12l4 4L19 6', close: 'M6 6l12 12 M18 6L6 18', refresh: 'M20 7v5h-5 M20 12a8 8 0 1 1-2-6' };
   return <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={paths[kind]} /></svg>;
 }
-function RubricModal({ detail, onClose }: { detail: { metadata: PreparedExam; specification: Exam }; onClose: () => void }) {
+function RubricModal({ detail, onClose, onModelSaved }: { detail: { metadata: PreparedExam; specification: Exam }; onClose: () => void; onModelSaved: (metadata: PreparedExam) => void }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [editing, setEditing] = useState(false); const [selectedModel, setSelectedModel] = useState(detail.metadata.model);
+  const [saving, setSaving] = useState(false); const [saveError, setSaveError] = useState(''); const [saved, setSaved] = useState(false);
+  const saveModel = async () => {
+    setSaving(true); setSaveError(''); setSaved(false);
+    try {
+      const value = await request<{ metadata: unknown }>(`/api/exams/${detail.metadata.id}/model`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: selectedModel }) });
+      onModelSaved(PreparedExamSchema.parse(value.metadata)); setEditing(false); setSaved(true);
+    } catch (error) { setSaveError(message(error)); } finally { setSaving(false); }
+  };
   useEffect(() => {
     const dialog = ref.current!;
     const previous = document.activeElement as HTMLElement | null;
@@ -70,7 +79,12 @@ function RubricModal({ detail, onClose }: { detail: { metadata: PreparedExam; sp
     return () => { dialog.close(); document.body.style.overflow = overflow; previous?.focus(); };
   }, []);
   return <dialog ref={ref} className="rubric-modal" aria-labelledby="rubric-title" onCancel={event => { event.preventDefault(); onClose(); }} onClick={event => { if (event.target === event.currentTarget) onClose(); }}>
-    <div className="rubric-modal-content"><div className="rubric-modal-heading"><div><span className="eyebrow">EXAM DETAILS</span><h2 id="rubric-title">{detail.metadata.name}</h2><p className="muted">{detail.metadata.questionCount} questions · {detail.metadata.maximumMarks} marks · Preparation {(detail.metadata.durationMs / 1000).toFixed(1)}s · {detail.metadata.usage.totalTokens.toLocaleString()} tokens</p></div><button className="icon-action" aria-label="Close details" title="Close details" onClick={onClose} autoFocus><ActionIcon kind="close" /></button></div><div className="rubric-modal-body"><Specification exam={detail.specification} /></div></div>
+    <div className="rubric-modal-content"><div className="rubric-modal-heading"><div><span className="eyebrow">EXAM DETAILS</span><h2 id="rubric-title">{detail.metadata.name}</h2><p className="muted">{detail.metadata.questionCount} questions · {detail.metadata.maximumMarks} marks · Preparation {(detail.metadata.durationMs / 1000).toFixed(1)}s · {detail.metadata.usage.totalTokens.toLocaleString()} tokens</p></div><button className="icon-action" aria-label="Close details" title="Close details" onClick={onClose} autoFocus><ActionIcon kind="close" /></button></div><div className="rubric-modal-body">
+      <section className="exam-model-settings" aria-label="Evaluation model"><h3>Evaluation model</h3><p>{modelLabels[detail.metadata.model]}</p>
+        {editing ? <><label htmlFor="exam-evaluation-model">Choose evaluation model</label><select id="exam-evaluation-model" value={selectedModel} disabled={saving} onChange={event => setSelectedModel(event.target.value as PreparedExam['model'])}>{(['gpt-6.1-sol', 'sol-ultrafast'] as const).map(model => <option key={model} value={model}>{modelLabels[model]}</option>)}</select><p className="muted">Applies to new submissions through the same student link. The existing questions and rubric are retained. Ultrafast has higher API cost.</p><div className="exam-model-actions"><button disabled={saving || selectedModel === detail.metadata.model} onClick={() => { void saveModel(); }}>{saving ? 'Saving…' : 'Save model'}</button><button className="secondary" disabled={saving} onClick={() => { setEditing(false); setSaveError(''); }}>Cancel</button></div></> : <button className="secondary" onClick={() => { setSelectedModel(detail.metadata.model); setEditing(true); setSaved(false); setSaveError(''); }}>Edit model</button>}
+        <p className="muted">Rubric prepared using {modelLabels[detail.metadata.preparationModel ?? detail.metadata.model]}.</p>
+        {saved && <p role="status">Model updated. New student submissions will use this model.</p>}{saveError && <p role="alert" className="error">{saveError}</p>}
+      </section><Specification exam={detail.specification} /></div></div>
   </dialog>;
 }
 function SolChoice({ value, onChange, disabled }: { value: string; onChange: (value: string) => void; disabled?: boolean }) {
@@ -128,7 +142,7 @@ export function FacultyPage() {
         </div><p className="faculty-list-note">Student links become available when preparation is complete.</p>
       </section>
     </div>
-    {detail && <RubricModal detail={detail} onClose={() => setDetail(null)} />}
+    {detail && <RubricModal detail={detail} onClose={() => setDetail(null)} onModelSaved={metadata => { setDetail(current => current?.metadata.id === metadata.id ? { ...current, metadata } : current); setExams(current => current.map(exam => exam.id === metadata.id ? metadata : exam)); }} />}
   </Shell>;
 }
 export function studentExamIdFromPath(pathname: string) {

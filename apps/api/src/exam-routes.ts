@@ -1,4 +1,5 @@
 import type { Express } from 'express';
+import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import { createHash } from 'node:crypto';
@@ -35,6 +36,16 @@ export function registerExamRoutes(app: Express, options: Options) {
   app.get('/api/exams', (_req, res) => res.json({ exams: catalog.list() }));
   app.get('/api/exams/:id/student', (req, res, next) => { try { res.json({ metadata: catalog.get(req.params.id).metadata }); } catch (error) { next(error); } });
   app.get('/api/exams/:id', (req, res, next) => { try { res.json(catalog.get(req.params.id)); } catch (error) { next(error); } });
+  app.patch('/api/exams/:id/model', express.json({ limit: '2kb' }), (req, res, next) => {
+    let reserved = false;
+    void (async () => { try {
+      const input = z.object({ model: tierSchema }).strict().safeParse(req.body);
+      if (!input.success) throw new AppError('INVALID_MODEL', 'Choose standard Sol or Sol Ultrafast processing.', 400);
+      selectModel(input.data.model);
+      store.reserve(); reserved = true;
+      res.json({ metadata: await catalog.updateModel(req.params.id, input.data.model) });
+    } catch (error) { next(error); } finally { if (reserved) store.release(); } })();
+  });
   app.post('/api/exams', (req, res, next) => {
     try { if (!options.configured) throw new AppError('NOT_CONFIGURED', 'Configure the backend API key before preparing exams.', 503); store.reserve(); } catch (error) { return next(error); }
     preparationUpload(req, res, uploadError => { void (async () => {

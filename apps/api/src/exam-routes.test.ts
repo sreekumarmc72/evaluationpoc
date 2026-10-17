@@ -28,6 +28,34 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('persists model edits and uses the latest saved model for future submissions without rebuilding the rubric', async () => {
+    const standard = fakeModel(); const ultra = fakeModel();
+    const app = createApp({ store, examCatalog: catalog, model: standard, models: { 'gpt-6.1-sol': standard, 'sol-ultrafast': ultra }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000 });
+    const created = await create(app); const original = await prepared(app, created.body.id);
+    // A student may have opened this metadata before the faculty saves a change.
+    expect((await request(app).get(`/api/exams/${created.body.id}/student`)).body.metadata.model).toBe('gpt-6.1-sol');
+    const changed = await request(app).patch(`/api/exams/${created.body.id}/model`).send({ model: 'sol-ultrafast' });
+    expect(changed.status).toBe(200); expect(changed.body.metadata).toMatchObject({ model: 'sol-ultrafast', preparationModel: 'gpt-6.1-sol', version: 1 });
+    expect((await request(app).get(`/api/exams/${created.body.id}`)).body.specification).toEqual(original.specification);
+    const reopened = new ExamCatalog(path.join(root, 'exams')); await reopened.initialize();
+    expect(reopened.get(created.body.id).metadata.model).toBe('sol-ultrafast');
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    expect(submitted.status).toBe(202); expect((await finished(app, submitted.body.id)).model).toBe('sol-ultrafast');
+    expect(ultra.transcribe).toHaveBeenCalledOnce(); expect(standard.transcribe).not.toHaveBeenCalled();
+    expect(standard.extract).toHaveBeenCalledOnce(); expect(ultra.extract).not.toHaveBeenCalled();
+    expect((await request(app).patch(`/api/exams/${created.body.id}/model`).send({ model: 'gpt-6.1-sol' })).status).toBe(200);
+    expect(catalog.get(created.body.id).metadata.preparationModel).toBe('gpt-6.1-sol');
+  });
+  it('rejects invalid model edits, busy updates and edits to exams still preparing', async () => {
+    const app = appFor(); const created = await create(app); await prepared(app, created.body.id);
+    const url = `/api/exams/${created.body.id}/model`;
+    for (const body of [{}, { model: 'gpt-6-luna' }, { model: 'sol-ultrafast', name: 'changed' }]) expect((await request(app).patch(url).send(body)).status).toBe(400);
+    store.reserve(); expect((await request(app).patch(url).send({ model: 'sol-ultrafast' })).status).toBe(409); store.release();
+    const pending = await catalog.create('Preparing exam', 'gpt-6.1-sol', { questionPaper: { name: 'paper.pdf', pages: 1, buffer: pdf }, answerKey: { name: 'key.pdf', pages: 1, buffer: pdf } });
+    expect((await request(app).patch(`/api/exams/${pending.id}/model`).send({ model: 'sol-ultrafast' })).status).toBe(409);
+    expect((await request(app).patch('/api/exams/not-an-id/model').send({ model: 'sol-ultrafast' })).status).toBe(404);
+    expect(catalog.get(created.body.id).metadata.model).toBe('gpt-6.1-sol');
+  });
   it.each(['gpt-6.1-sol', 'sol-ultrafast'])('enforces the faculty model %s and returns student metadata without the key', async tier => {
     const standard = fakeModel(); const ultra = fakeModel();
     const app = createApp({ store, examCatalog: catalog, model: standard, models: { 'gpt-6.1-sol': standard, 'sol-ultrafast': ultra }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000 });

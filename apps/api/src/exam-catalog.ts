@@ -61,6 +61,15 @@ export class ExamCatalog {
     await this.write(id, 'metadata.json', entry.metadata); this.entries.set(id, entry);
   }
   read(id: string, field: Field) { return readFile(path.join(this.directory(id), `${field}.pdf`)); }
+  async updateModel(id: string, model: PreparedExam['model']) {
+    const entry = this.get(id);
+    if (entry.metadata.status !== 'ready') throw new AppError('EXAM_NOT_READY', 'Only ready exams can change their evaluation model.', 409);
+    entry.metadata.preparationModel ??= entry.metadata.model;
+    entry.metadata.model = model;
+    await this.write(id, 'metadata.json', entry.metadata);
+    this.entries.set(id, entry);
+    return structuredClone(entry.metadata);
+  }
   async ready(id: string, specification: Exam, usage: Usage, durationMs: number) {
     const exam = this.validateSpecification(specification); const entry = this.get(id);
     await this.write(id, 'specification.json', exam);
