@@ -1,0 +1,26 @@
+# Free validation deployment. No disk or paid resources are provisioned.
+services:
+  - type: web
+    name: evaluationpoc
+    runtime: docker
+    plan: free
+    region: singapore
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-6.1-sol
+      - key: DATA_DIR
+        value: /data
+      - key: MODEL_TIMEOUT_MS
+        value: '180000'
+      - key: MAX_FILE_MB
+        value: '10'
+      - key: MAX_PDF_PAGES
+        value: '10'
+      - key: RETENTION_MS
+        value: '3600000'

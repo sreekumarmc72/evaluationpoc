@@ -174,7 +174,9 @@ For connection diagnosis, run `npm run connectivity`. It checks the backend, the
 - [PDF input](https://developers.openai.com/api/docs/guides/file-inputs)
 - [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs)
 - [GPT-6 Sol model](https://developers.openai.com/api/docs/models/gpt-6-sol)
-# Railway hosting
+## Hosting
+
+For a free-first Render deployment and later persistent-disk upgrade, see [the Render deployment checklist](docs/render-deployment.md). The root `render.yaml` provisions one free Docker web service, with no paid storage. Free-hosted saved exams are temporary until a persistent disk is attached.
 
 See [the Railway deployment checklist](docs/railway-deployment.md) for signup, repository access, public URLs, environment variables, persistent storage, free-trial limitations and launch verification. The Dockerfile builds React and runs it with Express as one service; `railway.json` configures its deployment health check.
 

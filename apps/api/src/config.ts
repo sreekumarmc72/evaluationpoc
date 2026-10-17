@@ -11,7 +11,7 @@ export const config = {
   port: positive('PORT', 3001), timeout: positive('MODEL_TIMEOUT_MS', 180000),
   host: process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
   dataDir: process.env.DATA_DIR?.trim() || '',
-  appOrigin: process.env.APP_ORIGIN?.trim() || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : ''),
+  appOrigin: process.env.APP_ORIGIN?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : ''),
   maxBytes: positive('MAX_FILE_MB', 10) * 1024 * 1024,
   maxPages: positive('MAX_PDF_PAGES', 10), retentionMs: positive('RETENTION_MS', 3600000),
 };
