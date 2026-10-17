@@ -8,6 +8,84 @@
 .exam-list, .exam-detail { margin-top: 36px; }
 .exam-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 16px; margin-top: 18px; }
 .exam-list .question > p { font-size: 13px; }
+.faculty-shell { max-width: 1600px; }
+.faculty-shell header { height: 72px; flex-shrink: 0; }
+.faculty-heading { padding: 20px 0 18px; }
+.faculty-heading h1 { font-size: 27px; letter-spacing: -.8px; margin: 4px 0; }
+.faculty-heading p { color: #6d786f; font-size: 13px; margin: 0; }
+.faculty-workspace { display: grid; grid-template-columns: minmax(300px, 35%) minmax(0, 1fr); gap: 22px; min-height: 0; }
+.faculty-create, .faculty-exams { min-width: 0; padding: 22px; background: white; border: 1px solid #dfe5d9; border-radius: 12px; }
+.faculty-create > .muted { margin: 4px 0 0; }
+.faculty-create .exam-form { gap: 10px; margin-top: 16px; }
+.faculty-create .exam-form > label { font-size: 12px; }
+.faculty-create .exam-form > input { padding: 9px 11px; font-size: 13px; }
+.faculty-create .upload-grid { gap: 10px; }
+.faculty-create .upload-card { padding: 13px 10px; }
+.faculty-create .upload-card label { font-size: 12px; }
+.faculty-create .upload-card p { font-size: 10px; margin: 3px 0 12px; }
+.faculty-create .upload-card input { font-size: 10px; }
+.faculty-create .upload-card small { overflow-wrap: anywhere; font-size: 10px; }
+.faculty-create .upload-card input::file-selector-button { display: block; margin: 0 0 5px; }
+.faculty-create .model-choice { margin: 4px 0 0; padding: 0; }
+.faculty-create .model-choice label { display: block; font-size: 12px; margin-bottom: 6px; }
+.faculty-create .model-choice select { width: 100%; min-width: 0; max-width: 100%; padding: 9px; font-size: 12px; }
+.faculty-create .model-choice p { font-size: 11px; margin: 7px 0 0; }
+.faculty-form-note { margin: 0; font-size: 11px; }
+.faculty-create .create-exam-button { width: 100%; justify-content: center; margin-top: 2px; padding: 10px; }
+.faculty-exams { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.faculty-list-heading { display: flex; justify-content: space-between; align-items: center; padding: 18px 20px 0; gap: 12px; }
+.faculty-list-heading p { margin: 3px 0 0; }
+.exam-count { display: inline-block; margin-left: 5px; font-size: 11px; background: #edf3e9; color: #436d48; border-radius: 20px; padding: 1px 8px; vertical-align: middle; }
+.faculty-search { padding: 12px 20px; }
+.faculty-search input { width: 100%; background: #fafbf8; border: 1px solid #dbe3d8; border-radius: 7px; padding: 9px 12px; font-size: 12px; }
+.faculty-exam-scroll { overflow: auto; flex: 1; min-height: 0; }
+.faculty-exam-table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
+.faculty-exam-table th { position: sticky; top: 0; z-index: 1; background: #f6f8f3; color: #60735e; font-weight: 500; font-size: 10px; white-space: nowrap; }
+.faculty-exam-table th, .faculty-exam-table td { padding: 13px 14px; border-bottom: 1px solid #e8ede3; vertical-align: top; }
+.faculty-exam-table th:first-child, .faculty-exam-table td:first-child { padding-left: 20px; width: 38%; overflow-wrap: anywhere; }
+.faculty-exam-table tbody tr:hover { background: #fafcf8; }
+.exam-row-meta { display: block; color: #7d877c; font-size: 10px; font-weight: 400; margin-top: 3px; }
+.exam-row-error { display: block; max-width: 220px; color: #923c30; margin-top: 8px; }
+.exam-source-files { border: 0; padding: 0; margin-top: 4px; font-size: 10px; }
+.exam-source-files p { margin: 5px 0; }
+.exam-row-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; min-width: 112px; }
+.exam-pages .icon-action { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; width: 33px; height: 33px; border: 1px solid #dfe5d9; border-radius: 7px; padding: 6px; background: white; color: #315a44; text-decoration: none; }
+.exam-pages .icon-action:hover { background: #eaf0e8; border-color: #b9cbb5; }
+.exam-pages .icon-action.copied { color: #205f4d; background: #eaf4e7; }
+.exam-row-actions .retry-exam { font-size: 11px; padding: 6px 9px; }
+.copy-feedback { color: #205f4d; font-size: 10px; flex-basis: 100%; }
+.faculty-list-note { margin: 0; padding: 11px 20px; font-size: 10px; color: #7d877c; border-top: 1px solid #e8ede3; }
+.exam-empty { font-size: 13px; color: #7d877c; padding: 20px; }
+.faculty-shell footer { font-size: 10px; padding: 12px 0; margin-top: 16px; }
+.rubric-modal { width: min(1080px, calc(100vw - 40px)); max-height: calc(100dvh - 56px); padding: 0; border: 1px solid #dfe5d9; border-radius: 14px; color: #20352e; background: #f7f8f4; box-shadow: 0 20px 80px #20352e33; overflow: hidden; }
+.rubric-modal::backdrop { background: #172a22a6; }
+.rubric-modal-content { display: flex; flex-direction: column; max-height: calc(100dvh - 60px); }
+.rubric-modal-heading { display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; padding: 20px 24px; background: white; border-bottom: 1px solid #dfe5d9; flex-shrink: 0; }
+.rubric-modal-heading h2 { font-size: 22px; margin: 3px 0; }
+.rubric-modal-heading p { margin: 4px 0 0; }
+.rubric-modal-body { overflow: auto; min-height: 0; padding: 24px; }
+.rubric-modal-body > section > h2 { font-size: 16px; }
+@media(min-width:1001px) {
+  .faculty-shell { height: 100dvh; display: flex; flex-direction: column; }
+  .faculty-shell main { display: flex; flex-direction: column; flex: 1; min-height: 0; padding-bottom: 0; }
+  .faculty-workspace { flex: 1; }
+  .faculty-create { overflow-y: auto; }
+}
+@media(max-width:1000px) {
+  .faculty-workspace { grid-template-columns: minmax(270px, 38%) minmax(0, 1fr); gap: 16px; }
+  .faculty-exam-scroll { max-height: 600px; }
+  .faculty-exam-table { min-width: 540px; }
+  .faculty-create { padding: 18px; }
+}
+@media(max-width:750px) {
+  .faculty-workspace { grid-template-columns: 1fr; }
+  .faculty-heading h1 { font-size: 25px; }
+  .faculty-create .upload-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .faculty-exam-scroll { max-height: 480px; }
+  .rubric-modal { width: calc(100vw - 20px); max-height: calc(100dvh - 24px); }
+  .rubric-modal-content { max-height: calc(100dvh - 28px); }
+  .rubric-modal-heading, .rubric-modal-body { padding: 16px; }
+}
 .student-steps { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-top: 22px; }
 .student-steps li { padding: 14px 12px; border: 1px solid #e0e5dc; border-radius: 9px; align-items: flex-start; background: #fafbf8; }
 .student-steps li > span { flex-shrink: 0; width: 28px; height: 28px; font-size: 13px; }

@@ -2,6 +2,8 @@
 
 ## Faculty and Student pages
 
+The faculty workspace keeps a compact creation form beside a searchable exam table. On desktop, the exam list scrolls within its panel; smaller screens stack the panels. Rubric details open in a keyboard-accessible modal, and ready exams have copy-link and new-tab student-link icons. Student pages show branding without header navigation. These presentation changes do not change saved exams, model selection, grading or storage.
+
 The original POC at `http://127.0.0.1:5173/` retains its existing workflow. Two separate pages are now available:
 
 - **Faculty:** `http://127.0.0.1:5173/faculty` — name an exam, upload the question paper and key, and create it. Preparation validates the PDFs, extracts questions/answers and creates the rubric. The page polls preparation status and allows inspection of the saved questions, marking guidance and criterion allocations. Failed preparations can be retried explicitly. Create another exam to change documents or marking rules; ready exams are immutable through the API.

@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, fireEvent, cleanup, act } from '@testing-library/react';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
+import { render, screen, waitFor, fireEvent, cleanup, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { FacultyPage, StudentPage, StudentProgress, studentExamIdFromPath } from './ExamPages';
 import type { PreparedExam, EvaluationRun } from '@poc/shared';
@@ -10,6 +10,11 @@ const exam = (status: PreparedExam['status'] = 'ready'): PreparedExam => ({ id, 
 const specification = { policyVersion: null, questions: [{ identifier: '1', text: 'Journal entry', maximumMarks: 6, expectedAnswer: 'Correct journal', acceptedAlternatives: [], markingCriteria: [], gradingBasis: 'inferred', rubric: [{ id: 'R1', description: 'Accounts and amounts', maximumMarks: 6, expectedEvidence: 'Correct ledger', keyAlignment: 'Answer key', allocationBasis: 'inferred' }] }], optionalQuestions: false, issues: [], warnings: [] };
 const result = (): EvaluationRun => ({ id: 'submission', examId: id, examVersion: 1, examReused: true, stage: 'completed', createdAt: 1, finishedAt: 2, exam: specification as EvaluationRun['exam'], transcription: null, resolution: null, resolvedTranscription: null, results: [{ identifier: '1', maximumMarks: 6, marks: 6, status: 'graded', justification: 'Correct accounts and amounts.', correctPoints: ['Correct journal'], missingPoints: [], reviewFlags: [], notes: [], uncertaintyDecisions: [], criterionAwards: [{ criterionId: 'R1', marks: 6, evidence: 'Correct journal', reason: 'Matches key', sourceEntryIds: [] }] }], totals: { maximumMarks: 6, gradedSubtotal: 6, totalMarks: 6, percentage: 100, pendingQuestions: [] }, warnings: [], error: null, model: 'gpt-6.1-sol', usage: { inputTokens: 10, outputTokens: 10, totalTokens: 20 }, stageDurations: { transcribing: 100, evaluating: 100 } });
 const response = (value: unknown, status = 200) => new Response(status === 204 ? null : JSON.stringify(value), { status });
+beforeEach(() => {
+  // jsdom does not implement the browser's native modal dialog methods.
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+});
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('Student progress', () => {
@@ -54,6 +59,28 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('filters exams by name or ID and reports an empty search result', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ exams: [exam(), { ...exam(), id: '22222222-2222-4222-8222-222222222222', name: 'Business mathematics' }] })));
+    render(<FacultyPage />); await screen.findByText('Business mathematics');
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search exams' }), { target: { value: 'business' } });
+    expect(screen.queryByText('Accounting test')).not.toBeInTheDocument();
+    expect(screen.getByText('Business mathematics')).toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: '11111111' } });
+    expect(screen.getByText('Accounting test')).toBeInTheDocument();
+    expect(screen.queryByText('Business mathematics')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('searchbox'), { target: { value: 'no match' } });
+    expect(screen.getByText('No exams match your search.')).toBeInTheDocument();
+  });
+  it('closes rubric details on cancel and restores page scrolling', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/exams' ? { exams: [exam()] } : { metadata: exam(), specification })));
+    render(<FacultyPage />); await screen.findByText('Ready');
+    fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(document.body.style.overflow).toBe('hidden');
+    fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(document.body.style.overflow).toBe('');
+  });
   it('provides and copies a distinct student link only for a ready exam', async () => {
     const writeText = vi.fn(async () => {});
     vi.stubGlobal('navigator', { clipboard: { writeText } });
@@ -61,6 +88,8 @@ describe('Faculty page', () => {
     render(<FacultyPage />);
     const link = await screen.findByRole('link', { name: 'Open student page →' });
     expect(link).toHaveAttribute('href', `/student/${id}`);
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(screen.getAllByRole('button', { name: 'Copy student link' })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Copy student link' }));
     await screen.findByText('Student link copied');
@@ -84,6 +113,10 @@ describe('Faculty page', () => {
     expect(screen.getByText('Preparation refused.')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' })); await screen.findByText('Accounts and amounts');
     expect(screen.getByText(/AI-generated, not teacher-approved/)).toBeInTheDocument();
+    const dialog = screen.getByRole('dialog', { name: 'Accounting test' });
+    expect(within(dialog).getByText('Accounts and amounts')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close details' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry preparation' }));
     await waitFor(() => expect(mock.mock.calls.some(([url, init]) => url.endsWith('/prepare') && init?.method === 'POST')).toBe(true));
   });
@@ -94,6 +127,8 @@ describe('Student page', () => {
     const mock = vi.fn(async (url: string, init?: RequestInit) => response(url.endsWith('/student') ? { metadata: exam() } : init?.method === 'POST' ? { id: 'submission' } : result(), init?.method === 'POST' ? 202 : 200));
     vi.stubGlobal('fetch', mock); render(<StudentPage examId={id} />); await screen.findByLabelText('Handwritten answer sheet');
     expect(screen.getByRole('heading', { name: 'Accounting test' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /paperwise/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByText('Correct journal')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Handwritten answer sheet'), { target: { files: [new File(['pdf'], 'sheet.pdf', { type: 'application/pdf' })] } });
