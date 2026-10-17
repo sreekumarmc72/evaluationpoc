@@ -32,7 +32,7 @@ describe('Evaluation API', () => {
     await writeFile(path.join(webRoot, 'assets', 'app.js'), 'console.log("app");');
     await writeFile(path.join(root, 'secret.pdf'), 'private document');
     const app = createApp({ store, model: fakeModel(), modelId: 'test-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, webRoot, appOrigin: 'https://paperwise.up.railway.app' });
-    for (const route of ['/', '/faculty', '/faculty/', '/student', '/student/']) {
+    for (const route of ['/', '/faculty', '/faculty/', '/student', '/student/', '/student/11111111-1111-4111-8111-111111111111', '/student/11111111-1111-4111-8111-111111111111/']) {
       const page = await request(app).get(route);
       expect(page.status).toBe(200); expect(page.text).toContain('Paperwise app');
     }

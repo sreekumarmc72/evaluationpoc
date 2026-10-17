@@ -28,6 +28,24 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it.each(['gpt-6.1-sol', 'sol-ultrafast'])('enforces the faculty model %s and returns student metadata without the key', async tier => {
+    const standard = fakeModel(); const ultra = fakeModel();
+    const app = createApp({ store, examCatalog: catalog, model: standard, models: { 'gpt-6.1-sol': standard, 'sol-ultrafast': ultra }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000 });
+    const created = await request(app).post('/api/exams').field('name', 'Faculty model').field('model', tier).attach('questionPaper', pdf, 'paper.pdf').attach('answerKey', pdf, 'key.pdf');
+    await prepared(app, created.body.id);
+    const student = await request(app).get(`/api/exams/${created.body.id}/student`);
+    expect(student.status).toBe(200); expect(student.body.metadata).toMatchObject({ id: created.body.id, model: tier, questionCount: 2, maximumMarks: 5 });
+    expect(student.body).not.toHaveProperty('specification');
+    for (const override of ['gpt-6.1-sol', 'sol-ultrafast']) {
+      const rejected = await request(app).post(`/api/exams/${created.body.id}/evaluations`).field('model', override).attach('answerSheet', pdf, 'sheet.pdf');
+      expect(rejected.status).toBe(400); expect(rejected.body.error.code).toBe('INVALID_SUBMISSION');
+    }
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    expect(submitted.status).toBe(202); expect((await finished(app, submitted.body.id)).model).toBe(tier);
+    expect((tier === 'sol-ultrafast' ? ultra : standard).transcribe).toHaveBeenCalledOnce();
+    expect((tier === 'sol-ultrafast' ? standard : ultra).transcribe).not.toHaveBeenCalled();
+    expect((await request(app).get('/api/exams/not-an-id/student')).status).toBe(404);
+  });
   it('prepares multiple named exams once and evaluates each new sheet without any extraction call', async () => {
     const model = fakeModel(); const app = appFor(model);
     const first = await create(app, 'Accounting A'); expect(first.status).toBe(202); expect((await prepared(app, first.body.id)).metadata.status).toBe('ready');

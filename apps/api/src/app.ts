@@ -105,7 +105,7 @@ export function createApp(options: Options) {
   if (options.webRoot) {
     const webRoot = path.resolve(options.webRoot);
     app.use(express.static(webRoot, { index: false, dotfiles: 'deny' }));
-    app.get(['/', '/faculty', '/faculty/', '/student', '/student/'], (_req, res, next) => {
+    app.get(['/', '/faculty', '/faculty/', '/student', '/student/', '/student/:examId', '/student/:examId/'], (_req, res, next) => {
       res.sendFile(path.join(webRoot, 'index.html'), error => { if (error) next(error); });
     });
   }

@@ -2,7 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, cleanup, act } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
-import { FacultyPage, StudentPage, StudentProgress } from './ExamPages';
+import { FacultyPage, StudentPage, StudentProgress, studentExamIdFromPath } from './ExamPages';
 import type { PreparedExam, EvaluationRun } from '@poc/shared';
 
 const id = '11111111-1111-4111-8111-111111111111';
@@ -54,6 +54,18 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('provides and copies a distinct student link only for a ready exam', async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal('navigator', { clipboard: { writeText } });
+    vi.stubGlobal('fetch', vi.fn(async () => response({ exams: [exam(), { ...exam('preparing'), id: '22222222-2222-4222-8222-222222222222' }] })));
+    render(<FacultyPage />);
+    const link = await screen.findByRole('link', { name: 'Open student page →' });
+    expect(link).toHaveAttribute('href', `/student/${id}`);
+    expect(screen.getAllByRole('button', { name: 'Copy student link' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy student link' }));
+    await screen.findByText('Student link copied');
+    expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/student/${id}`);
+  });
   it('creates a named exam with two PDFs and displays its preparation status', async () => {
     let created = false;
     const mock = vi.fn(async (_url: string, init?: RequestInit) => { if (init?.method === 'POST') { created = true; return response({ id }, 202); } return response({ exams: created ? [exam('preparing')] : [] }); });
@@ -77,29 +89,59 @@ describe('Faculty page', () => {
   });
 });
 describe('Student page', () => {
-  it('only offers ready exams and submits one sheet, displaying marks and rubric without teacher adjustment controls', async () => {
+  it('loads the URL exam without selectors and submits only the answer sheet', async () => {
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() }));
-    const mock = vi.fn(async (url: string, init?: RequestInit) => response(url === '/api/exams' ? { exams: [exam(), { ...exam('preparing'), id: '22222222-2222-4222-8222-222222222222', name: 'Not ready' }] } : init?.method === 'POST' ? { id: 'submission' } : result(), init?.method === 'POST' ? 202 : 200));
-    vi.stubGlobal('fetch', mock); render(<StudentPage />); await screen.findByLabelText('Choose exam');
-    expect(screen.queryByRole('option', { name: /Not ready/ })).not.toBeInTheDocument();
+    const mock = vi.fn(async (url: string, init?: RequestInit) => response(url.endsWith('/student') ? { metadata: exam() } : init?.method === 'POST' ? { id: 'submission' } : result(), init?.method === 'POST' ? 202 : 200));
+    vi.stubGlobal('fetch', mock); render(<StudentPage examId={id} />); await screen.findByLabelText('Handwritten answer sheet');
+    expect(screen.getByRole('heading', { name: 'Accounting test' })).toBeInTheDocument();
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.queryByText('Correct journal')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Handwritten answer sheet'), { target: { files: [new File(['pdf'], 'sheet.pdf', { type: 'application/pdf' })] } });
     fireEvent.click(screen.getByRole('button', { name: 'Submit for evaluation' })); await screen.findByText('6 / 6');
     const [url, init] = mock.mock.calls.find(([, init]) => init?.method === 'POST')!; expect(url).toBe(`/api/exams/${id}/evaluations`);
-    const body = init!.body as FormData; expect(body.get('answerSheet')).toBeInstanceOf(File); expect(body.get('questionPaper')).toBeNull(); expect(body.get('answerKey')).toBeNull();
+    const body = init!.body as FormData; expect([...body.keys()]).toEqual(['answerSheet']);
     expect(screen.getByText('Marking rubric & how it was applied')).toBeInTheDocument(); expect(screen.queryByText('Review or adjust marks')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'New submission' })); await screen.findByLabelText('Handwritten answer sheet');
+    expect(screen.getByRole('heading', { name: 'Accounting test' })).toBeInTheDocument();
   });
-  it('explains empty exam selection and reconnects to a saved submission without posting again', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => response({ exams: [] }))); const view = render(<StudentPage />);
-    await screen.findByText(/No prepared exams/); view.unmount();
-    sessionStorage.setItem('student-run-id', 'submission');
-    const mock = vi.fn(async (url: string) => response(url === '/api/exams' ? { exams: [exam()] } : result())); vi.stubGlobal('fetch', mock);
-    render(<StudentPage />); await screen.findByText('6 / 6'); expect(mock.mock.calls.every(([url]) => url === '/api/exams' || url === '/api/evaluations/submission')).toBe(true);
+  it('asks for a faculty link on the bare student URL without listing exams', () => {
+    const mock = vi.fn(); vi.stubGlobal('fetch', mock); render(<StudentPage examId="" />);
+    expect(screen.getByRole('heading', { name: 'Open your exam link.' })).toBeInTheDocument(); expect(mock).not.toHaveBeenCalled();
+    expect(studentExamIdFromPath(`/student/${id}/`)).toBe(id);
+    expect(studentExamIdFromPath('/student')).toBe('');
+    expect(studentExamIdFromPath(`/student/${id}/other`)).toBe('');
   });
-  it('shows failed evaluations and resets safely when the run has expired', async () => {
-    sessionStorage.setItem('student-run-id', 'expired');
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/exams' ? { exams: [exam()] } : { error: { message: 'Submission expired.' } }, url === '/api/exams' ? 200 : 404)));
-    render(<StudentPage />); await screen.findByRole('heading', { name: 'Submission expired' });
-    fireEvent.click(screen.getByRole('button', { name: 'New submission' })); await screen.findByRole('heading', { name: 'Submit answer sheet' });
-    expect(sessionStorage.getItem('student-run-id')).toBeNull();
+  it.each(['preparing', 'failed'] as const)('does not allow submissions to a %s exam', async status => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ metadata: exam(status) })));
+    render(<StudentPage examId={id} />); await screen.findByText(status === 'preparing' ? /still being prepared/ : /not ready for submissions/);
+    expect(screen.queryByLabelText('Handwritten answer sheet')).not.toBeInTheDocument();
+  });
+  it('explains an invalid or expired exam link', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: { message: 'Exam not found.' } }, 404)));
+    render(<StudentPage examId="invalid" />); await screen.findByRole('heading', { name: 'Exam unavailable' });
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  });
+  it('reconnects to the exam-scoped saved submission without posting again', async () => {
+    sessionStorage.setItem(`student-run-id:${id}`, 'submission');
+    const mock = vi.fn(async (url: string) => response(url.endsWith('/student') ? { metadata: exam() } : result())); vi.stubGlobal('fetch', mock);
+    render(<StudentPage examId={id} />); await screen.findByText('6 / 6');
+    expect(mock.mock.calls.every(([url]) => url === `/api/exams/${id}/student` || url === '/api/evaluations/submission')).toBe(true);
+  });
+  it('ignores another exam session and rejects a mismatched run response', async () => {
+    sessionStorage.setItem('student-run-id:other-exam', 'other-submission');
+    const mock = vi.fn(async (url: string) => response(url.endsWith('/student') ? { metadata: exam() } : { ...result(), examId: 'other-exam' }));
+    vi.stubGlobal('fetch', mock); const view = render(<StudentPage examId={id} />); await screen.findByLabelText('Handwritten answer sheet');
+    expect(mock.mock.calls.some(([url]) => url.includes('other-submission'))).toBe(false); view.unmount();
+    sessionStorage.setItem(`student-run-id:${id}`, 'wrong-submission');
+    render(<StudentPage examId={id} />); await screen.findByText(/saved submission belongs to another exam/);
+    expect(screen.queryByText('6 / 6')).not.toBeInTheDocument();
+    expect(sessionStorage.getItem(`student-run-id:${id}`)).toBeNull();
+  });
+  it('resets safely when the run has expired, staying on the same exam', async () => {
+    sessionStorage.setItem(`student-run-id:${id}`, 'expired');
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url.endsWith('/student') ? { metadata: exam() } : { error: { message: 'Submission expired.' } }, url.endsWith('/student') ? 200 : 404)));
+    render(<StudentPage examId={id} />); await screen.findByRole('heading', { name: 'Submission expired' });
+    fireEvent.click(screen.getByRole('button', { name: 'New submission' })); await screen.findByLabelText('Handwritten answer sheet');
+    expect(sessionStorage.getItem(`student-run-id:${id}`)).toBeNull();
   });
 });

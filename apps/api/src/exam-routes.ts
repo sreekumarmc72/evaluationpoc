@@ -33,6 +33,7 @@ export function registerExamRoutes(app: Express, options: Options) {
     finally { store.release(); console.info(JSON.stringify({ examId: id, status: catalog.get(id).metadata.status, durationMs: Date.now() - start })); }
   };
   app.get('/api/exams', (_req, res) => res.json({ exams: catalog.list() }));
+  app.get('/api/exams/:id/student', (req, res, next) => { try { res.json({ metadata: catalog.get(req.params.id).metadata }); } catch (error) { next(error); } });
   app.get('/api/exams/:id', (req, res, next) => { try { res.json(catalog.get(req.params.id)); } catch (error) { next(error); } });
   app.post('/api/exams', (req, res, next) => {
     try { if (!options.configured) throw new AppError('NOT_CONFIGURED', 'Configure the backend API key before preparing exams.', 503); store.reserve(); } catch (error) { return next(error); }
@@ -63,11 +64,11 @@ export function registerExamRoutes(app: Express, options: Options) {
     try { entry = catalog.get(req.params.id); if (entry.metadata.status !== 'ready' || !entry.specification) throw new AppError('EXAM_NOT_READY', 'This exam is not ready for submissions.', 409); if (!options.configured) throw new AppError('NOT_CONFIGURED', 'Configure the backend API key before evaluating.', 503); store.reserve(); } catch (error) { return next(error); }
     submissionUpload(req, res, uploadError => { void (async () => { try {
       if (uploadError) throw uploadError;
-      const body = z.object({ model: tierSchema.default(entry.metadata.model) }).strict().safeParse(req.body);
-      if (!body.success) throw new AppError('INVALID_MODEL', 'Choose standard Sol or Sol Ultrafast processing.', 400);
-      const model = selectModel(body.data.model); if (!req.file) throw new AppError('MISSING_FILES', 'Upload one answer-sheet PDF.', 400);
+      const body = z.object({}).strict().safeParse(req.body);
+      if (!body.success) throw new AppError('INVALID_SUBMISSION', 'Only the answer sheet is accepted. The faculty has already selected the processing model.', 400);
+      const model = selectModel(entry.metadata.model); if (!req.file) throw new AppError('MISSING_FILES', 'Upload one answer-sheet PDF.', 400);
       const start = Date.now(); const pages = await validatePdf(req.file.buffer, 'answerSheet', options.maxBytes, options.maxPages);
-      const run = await store.create({ answerSheet: req.file.buffer }, body.data.model);
+      const run = await store.create({ answerSheet: req.file.buffer }, entry.metadata.model);
       run.examId = entry.metadata.id; run.examVersion = entry.metadata.version; run.examReused = true; run.exam = entry.specification;
       run.stageDurations.validating = Date.now() - start; run.stageModels = model.stageModels ?? Object.fromEntries(['transcribing', 'resolving_answers', 'evaluating'].map(stage => [stage, 'gpt-6.1-sol']));
       res.status(202).json({ id: run.id }); void processRun(run, store, model, pages, entry.specification!);
