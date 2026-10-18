@@ -12,13 +12,17 @@ import { processRun } from './pipeline.js';
 import { examFields, type RetainedExamStore } from './retained-exam.js';
 import type { ExamCatalog } from './exam-catalog.js';
 import { registerExamRoutes } from './exam-routes.js';
+import { facultyAccess } from './access.js';
 
-type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string };
+type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string; facultyPassword?: string; facultyUser?: string; requireFacultyAuth?: boolean };
 export function createApp(options: Options) {
   const app = express();
   app.disable('x-powered-by');
   const allowedOrigin = options.appOrigin ? new URL(options.appOrigin).origin : null;
   app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
+  app.use((_req, res, next) => { res.set('Referrer-Policy', 'no-referrer').set('X-Content-Type-Options', 'nosniff').set('X-Frame-Options', 'SAMEORIGIN'); next(); });
+  app.use(facultyAccess(options));
+  app.get('/api/storage', (_req, res, next) => { void options.store.storageUsage().then(storage => res.json({ storage })).catch(next); });
   // Same-origin writes only. CLI clients without Origin remain supported.
   app.use((req, _res, next) => {
     const origin = req.get('origin');
@@ -33,7 +37,7 @@ export function createApp(options: Options) {
   });
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: options.maxBytes, files: 3, fields: 1, fieldSize: 100, parts: 4 } }).fields(uploadFields.map(name => ({ name, maxCount: 1 })));
   app.get('/api/health', (_req, res, next) => {
-    void (async () => { const saved = await options.retainedExam?.read(); res.json({ ok: true, configured: options.configured, model: options.modelId, models: selectableModels.filter(id => !!options.models?.[id]), limits: { maxFileBytes: options.maxBytes, maxPages: options.maxPages }, retentionMs: options.retentionMs, retainedExam: options.retainedExam?.metadata(saved ?? null) ?? null }); })().catch(next);
+    void (async () => { const saved = await options.retainedExam?.read(); res.json({ ok: true, configured: options.configured, durableStudentSubmissions: options.store.supportsHistory, facultyAccessConfigured: !!options.facultyPassword, model: options.modelId, models: selectableModels.filter(id => !!options.models?.[id]), limits: { maxFileBytes: options.maxBytes, maxPages: options.maxPages }, retentionMs: options.retentionMs, retainedExam: options.retainedExam?.metadata(saved ?? null) ?? null }); })().catch(next);
   });
   app.delete('/api/exam', (_req, res, next) => {
     try { options.store.reserve(); } catch (error) { return next(error); }
@@ -90,9 +94,12 @@ export function createApp(options: Options) {
     if (!result) return next(new AppError('NOT_FOUND', 'Question not found.', 404));
     const input = z.object({ marks: z.number().finite().min(0).max(result.maximumMarks), reason: z.string().trim().min(1).max(2000) }).strict().safeParse(req.body);
     if (!input.success) return next(new AppError('INVALID_REVIEW', `Enter marks between 0 and ${result.maximumMarks} and a review reason.`, 400));
-    result.teacherAdjustment = { ...input.data, updatedAt: Date.now() };
-    run.totals = calculateTotals(run.results);
-    res.json(run);
+    void (async () => {
+      const updated = structuredClone(run);
+      updated.results.find(item => item.identifier === req.params.questionId)!.teacherAdjustment = { ...input.data, updatedAt: Date.now() };
+      updated.totals = calculateTotals(updated.results);
+      await options.store.checkpoint(updated); Object.assign(run, updated); res.json(run);
+    })().catch(next);
   });
   app.delete('/api/evaluations/:id', (req, res, next) => {
     void options.store.remove(req.params.id).then(() => res.status(204).end()).catch(next);

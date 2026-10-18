@@ -40,7 +40,12 @@ export const AnswerSchema = z.object({
   uncertaintyNotes: z.array(z.string()), unsupportedContent: z.boolean(),
   uncertainties: z.array(UncertaintySchema),
 });
+export const StudentIdentitySchema = z.object({
+  name: z.string().max(160).nullable(), status: z.enum(['readable', 'unclear', 'absent']),
+  sourcePages: z.array(z.number().int().positive()), note: z.string().max(1000),
+});
 export const TranscriptionSchema = z.object({
+  studentIdentity: StudentIdentitySchema.optional(),
   answers: z.array(AnswerSchema), pagesRead: z.array(z.number().int()),
   allPagesRead: z.boolean(), warnings: z.array(z.string()),
 });
@@ -68,6 +73,7 @@ export const TotalsSchema = z.object({
 export const UsageSchema = z.object({ inputTokens: z.number(), outputTokens: z.number(), totalTokens: z.number() });
 export const RunErrorSchema = z.object({ code: z.string(), message: z.string(), stage: z.enum(stages) });
 export const RunSchema = z.object({
+  durable: z.boolean().optional(),
   id: z.string(), stage: z.enum(stages), createdAt: z.number(), finishedAt: z.number().nullable(),
   exam: ExamSchema.nullable(), transcription: TranscriptionSchema.nullable(),
   resolution: ResolutionSchema.nullable(), resolvedTranscription: TranscriptionSchema.nullable(),
@@ -91,9 +97,15 @@ export const PreparedExamSchema = z.object({
   id: z.string().uuid(), name: z.string().trim().min(1).max(120), version: z.number().int().positive(),
   status: z.enum(['preparing', 'ready', 'failed']), model: z.enum(['gpt-6.1-sol', 'sol-ultrafast']),
   preparationModel: z.enum(['gpt-6.1-sol', 'sol-ultrafast']).optional(),
+  submissionCount: z.number().int().nonnegative().optional(),
   createdAt: z.number(), finishedAt: z.number().nullable(),
   documents: z.object({ questionPaper: z.object({ name: z.string(), pages: z.number(), sha256: z.string() }), answerKey: z.object({ name: z.string(), pages: z.number(), sha256: z.string() }) }),
   questionCount: z.number().int(), maximumMarks: z.number(), usage: UsageSchema, durationMs: z.number(),
   warnings: z.array(z.string()), error: z.object({ code: z.string(), message: z.string() }).nullable(),
 });
 export type PreparedExam = z.infer<typeof PreparedExamSchema>;
+export const SubmissionSummarySchema = z.object({
+  id: z.string().uuid(), createdAt: z.number(), stage: z.enum(stages), model: z.string(), totals: TotalsSchema.nullable(),
+  studentName: z.string().nullable(), nameStatus: z.enum(['readable', 'unclear', 'absent']), interrupted: z.boolean(), error: z.string().nullable(),
+});
+export type SubmissionSummary = z.infer<typeof SubmissionSummarySchema>;

@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { ExamSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
+import { ExamSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, StudentIdentitySchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
 import { createHash } from 'node:crypto';
 import { validateExam } from './validation.js';
 import { extractionPrompt, transcriptionPrompt, gradingPrompt, resolutionPrompt } from './prompts.js';
@@ -74,7 +74,7 @@ export class OpenAIModel implements EvaluationModel {
     return { ...response, value: structuredClone(exam) };
   }
   transcribe(answerSheet: Buffer) {
-    return this.call(TranscriptionSchema, 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
+    return this.call(TranscriptionSchema.extend({ studentIdentity: StudentIdentitySchema }), 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
   }
   resolve(answerSheet: Buffer, questions: Array<{ identifier: string; text: string }>, transcription: Transcription) {
     // Project fields here as well as in the pipeline: never leak the key to reading.
@@ -110,7 +110,8 @@ export class OpenAIModel implements EvaluationModel {
       return [q.identifier, q.rubric?.length ? base.extend({ criterionAwards: z.object(Object.fromEntries(q.rubric.map(c => [c.id, CriterionAwardSchema.omit({ criterionId: true }).strict()]))).strict() }).strict() : base.extend({ assessedMarks: z.number().nullable() }).strict()];
     }));
     const schema = z.object({ results: z.object(questions).strict(), warnings: z.array(z.string()) }).strict();
-    const response = await this.call(schema, 'grading', gradingPrompt, [{ type: 'input_text', text: JSON.stringify({ exam, transcription, resolution }) }]);
+    const { studentIdentity: _identity, ...gradingTranscription } = transcription;
+    const response = await this.call(schema, 'grading', gradingPrompt, [{ type: 'input_text', text: JSON.stringify({ exam, transcription: gradingTranscription, resolution }) }]);
     const value = schema.parse(response.value);
     const results = Object.values(value.results).map(result => {
       const r = result as any;

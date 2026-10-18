@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, cleanup, act, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { FacultyPage, StudentPage, StudentProgress, studentExamIdFromPath } from './ExamPages';
+import { SubmissionHistory, submissionScore } from './SubmissionHistory';
 import type { PreparedExam, EvaluationRun } from '@poc/shared';
 
 const id = '11111111-1111-4111-8111-111111111111';
@@ -59,6 +60,26 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('opens saved submissions and displays the report, rubric and PDF', async () => {
+    const summary = { id, createdAt: 1, stage: 'completed', model: 'gpt-6.1-sol', totals: result().totals, studentName: 'Anu Thomas', nameStatus: 'readable', interrupted: false, error: null };
+    const mock = vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : url === '/api/exams' ? { exams: [{ ...exam(), submissionCount: 1 }] } : url.includes('/submissions') ? { submissions: [summary], total: 1 } : { ...result(), id }));
+    vi.stubGlobal('fetch', mock); render(<FacultyPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Submissions (1)' }));
+    const dialog = await screen.findByRole('dialog'); await within(dialog).findByText('Anu Thomas');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'View result' }));
+    await within(dialog).findByText('Marking rubric & how it was applied');
+    expect(within(dialog).getByTitle('Saved answer sheet PDF')).toHaveAttribute('src', `/api/evaluations/${id}/answer-sheet`);
+    fireEvent.click(within(dialog).getByRole('button', { name: /Back to submissions/ }));
+    expect(within(dialog).getByText('Anu Thomas')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close submissions' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it('shows a safe empty archive and does not label unresolved marks as zero', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ submissions: [], total: 0 })));
+    render(<SubmissionHistory exam={exam()} onClose={() => {}} />);
+    await screen.findByText('No saved submissions yet. New uploads will appear here.');
+    expect(submissionScore({ id, createdAt: 1, stage: 'completed', model: 'gpt-6.1-sol', totals: { ...result().totals!, totalMarks: null, gradedSubtotal: 0, pendingQuestions: ['1'] }, studentName: null, nameStatus: 'absent', interrupted: false, error: null })).toBe('No marks finalised');
+  });
   it('edits the model from the details popup and displays the persisted selection', async () => {
     const updated = { ...exam(), model: 'sol-ultrafast' as const, preparationModel: 'gpt-6.1-sol' as const };
     const mock = vi.fn(async (url: string, init?: RequestInit) => response(init?.method === 'PATCH' ? { metadata: updated } : url === '/api/exams' ? { exams: [exam()] } : { metadata: exam(), specification }));

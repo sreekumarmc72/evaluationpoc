@@ -38,6 +38,7 @@ describe('Concurrent independent document reading', () => {
     model.extract = vi.fn(() => exam.promise); model.transcribe = vi.fn(() => sheet.promise);
     const stages: string[] = [];
     const run = evaluateDocuments(model, files, 1, p => stages.push(p.stage));
+    await vi.waitFor(() => expect(model.transcribe).toHaveBeenCalled());
     expect(model.extract).toHaveBeenCalledWith(files.questionPaper, files.answerKey);
     expect(model.transcribe).toHaveBeenCalledWith(files.answerSheet);
     expect(stages[0]).toBe('reading_documents');

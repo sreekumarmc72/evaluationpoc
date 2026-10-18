@@ -27,6 +27,14 @@ export function identifyTranscription(value: unknown): Transcription {
   const parsed = TranscriptionSchema.safeParse(value);
   if (!parsed.success) return fail('The model returned an invalid transcription.');
   const t = parsed.data;
+  if (t.studentIdentity) {
+    const identity = t.studentIdentity;
+    identity.sourcePages = [...new Set(identity.sourcePages.filter(page => t.pagesRead.includes(page)))];
+    if (identity.status !== 'readable' || !identity.name?.trim() || !identity.sourcePages.length) {
+      identity.name = null;
+      if (identity.status === 'readable') { identity.status = 'unclear'; identity.note = 'The reported name lacks readable evidence or valid page attribution.'; }
+    } else identity.name = identity.name.trim();
+  }
   for (const [i, a] of t.answers.entries()) {
     a.entryId = `entry-${i + 1}`;
     for (const [j, u] of a.uncertainties.entries()) u.id = `${a.entryId}-uncertainty-${j + 1}`;

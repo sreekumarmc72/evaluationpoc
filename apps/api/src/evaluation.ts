@@ -4,17 +4,17 @@ import { validateExam, identifyTranscription, validateTranscription, validateGra
 
 type Progress = Pick<EvaluationRun, 'stage' | 'exam' | 'transcription' | 'resolution' | 'resolvedTranscription' | 'results' | 'totals' | 'warnings' | 'usage' | 'stageDurations' | 'examReused'>;
 // Shared by HTTP and baseline; no additional retry layer.
-export async function evaluateDocuments(model: EvaluationModel, files: Record<UploadField, Buffer>, pageCount: number, update: (progress: Progress) => void = () => {}, preparedExam?: Exam) {
+export async function evaluateDocuments(model: EvaluationModel, files: Record<UploadField, Buffer>, pageCount: number, update: (progress: Progress) => unknown = () => {}, preparedExam?: Exam) {
   const p: Progress = { stage: 'reading_documents', exam: null, transcription: null, resolution: null, resolvedTranscription: null, results: [], totals: null, warnings: [], usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 }, stageDurations: {} };
   const step = async (stage: 'extracting_exam' | 'transcribing' | 'resolving_answers' | 'evaluating', work: () => Promise<ModelResponse>, background = false) => {
     if (!background) p.stage = stage;
-    update(p); const start = Date.now();
+    await update(p); const start = Date.now();
     try {
       const response = await work();
       if (stage === 'extracting_exam') p.examReused = response.examReused === true;
       p.usage.inputTokens += response.usage.inputTokens; p.usage.outputTokens += response.usage.outputTokens; p.usage.totalTokens += response.usage.totalTokens;
       return response.value;
-    } finally { p.stageDurations[stage] = Date.now() - start; update(p); }
+    } finally { p.stageDurations[stage] = Date.now() - start; await update(p); }
   };
   let transcription: ReturnType<typeof validateTranscription> | undefined;
   if (preparedExam) {
@@ -31,7 +31,7 @@ export async function evaluateDocuments(model: EvaluationModel, files: Record<Up
     finally {
       pending.delete(stage);
       if (pending.size === 1) p.stage = [...pending][0];
-      update(p);
+      await update(p);
     }
   };
   // Calls have independent inputs; neither can inspect the other call's documents.
@@ -48,11 +48,11 @@ export async function evaluateDocuments(model: EvaluationModel, files: Record<Up
   ]);
   p.stageDurations.reading_documents = Date.now() - readingStart;
   if (failedStage) {
-    p.stage = failedStage; update(p);
+    p.stage = failedStage; await update(p);
     const failure = readings[failedStage === 'extracting_exam' ? 0 : 1];
     if (failure.status === 'rejected') throw failure.reason;
   }
-  update(p);
+  await update(p);
   if (!p.exam || !transcription) throw new Error('Independent document processing did not complete.');
   }
   const normalizedTranscription = transcription;
@@ -64,8 +64,8 @@ export async function evaluateDocuments(model: EvaluationModel, files: Record<Up
   p.resolvedTranscription = applyResolution(normalizedTranscription, p.resolution);
   const grading = validateGrading(await step('evaluating', () => model.grade(exam, p.resolvedTranscription!, p.resolution!)), exam, p.resolvedTranscription, p.resolution, normalizedTranscription);
   p.results = grading.results; p.totals = grading.totals; p.warnings.push(...grading.warnings);
-  p.stage = 'completed'; update(p); return p;
+  p.stage = 'completed'; await update(p); return p;
 }
-export function evaluatePreparedExam(model: EvaluationModel, exam: Exam, answerSheet: Buffer, pageCount: number, update: (progress: Progress) => void = () => {}) {
+export function evaluatePreparedExam(model: EvaluationModel, exam: Exam, answerSheet: Buffer, pageCount: number, update: (progress: Progress) => unknown = () => {}) {
   return evaluateDocuments(model, { questionPaper: Buffer.alloc(0), answerKey: Buffer.alloc(0), answerSheet }, pageCount, update, exam);
 }

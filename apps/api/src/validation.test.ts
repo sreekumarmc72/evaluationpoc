@@ -3,6 +3,15 @@ import { validateExam, validateTranscription, validateGrading, directResolution,
 import { examFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
 
 describe('Exam and transcription integrity', () => {
+  it('preserves readable names with page evidence and does not turn name uncertainty into grading blockers', () => {
+    const t = transcriptionFixture(); t.studentIdentity = { name: '  Anu Thomas  ', status: 'readable', sourcePages: [1], note: 'Name field.' };
+    expect(validateTranscription(t, 1).studentIdentity?.name).toBe('Anu Thomas');
+    t.studentIdentity = { name: 'Guessed name', status: 'readable', sourcePages: [2], note: 'No inspected source.' };
+    const unclear = validateTranscription(t, 1);
+    expect(unclear.studentIdentity).toMatchObject({ name: null, status: 'unclear', sourcePages: [] });
+    expect(unclear.answers[0].uncertainties).toHaveLength(0);
+    expect(unclear.answers).toHaveLength(2);
+  });
   it('rejects optional questions, missing marks, missing keys and reported conflicts', () => {
     expect(() => validateExam({ ...examFixture(), optionalQuestions: true })).toThrow(/Optional/);
     expect(() => validateExam({ ...examFixture(), issues: ['Marks conflict'] })).toThrow(/Marks conflict/);

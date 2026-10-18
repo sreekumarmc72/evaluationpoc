@@ -10,7 +10,8 @@ import { RetainedExamStore } from './retained-exam.js';
 import { fileURLToPath } from 'node:url';
 import { ExamCatalog } from './exam-catalog.js';
 
-const store = new RunStore(await mkdtemp(path.join(tmpdir(), 'answer-evaluation-')), config.retentionMs);
+const store = new RunStore(await mkdtemp(path.join(tmpdir(), 'answer-evaluation-')), config.retentionMs, config.dataDir ? path.resolve(config.dataDir, 'submissions') : fileURLToPath(new URL('../../../.local-data/submissions/', import.meta.url)));
+await store.initialize();
 const client = new OpenAI({ apiKey: config.apiKey || 'not-configured', timeout: config.timeout, maxRetries: 2 });
 const retainedExam = new RetainedExamStore(config.dataDir ? path.resolve(config.dataDir, 'retained-exam') : fileURLToPath(new URL('../../../.local-exam/', import.meta.url)));
 const examCatalog = new ExamCatalog(config.dataDir ? path.resolve(config.dataDir, 'exams') : fileURLToPath(new URL('../../../.local-data/exams/', import.meta.url)));

@@ -3,7 +3,7 @@ export const examFixture = (): Exam => ({ policyVersion: null, questions: [
   { identifier: '1', text: 'What is 2 + 2?', maximumMarks: 2, expectedAnswer: '4', acceptedAlternatives: [], markingCriteria: [], gradingBasis: 'inferred' },
   { identifier: '2(a)', text: 'Solve x + 1 = 3.', maximumMarks: 3, expectedAnswer: 'x = 2', acceptedAlternatives: [], markingCriteria: ['Correct working and answer'], gradingBasis: 'supplied' },
 ], optionalQuestions: false, issues: [], warnings: [] });
-export const transcriptionFixture = (): Transcription => ({ answers: [
+export const transcriptionFixture = (): Transcription => ({ studentIdentity: { name: null, status: 'absent', sourcePages: [], note: 'No student name is visible.' }, answers: [
   { entryId: 'entry-1', identifier: '1', text: '4', sourcePages: [1], uncertaintyNotes: [], uncertainties: [], unsupportedContent: false },
   { entryId: 'entry-2', identifier: '2(a)', text: '$x = 3 - 1 = 2$', sourcePages: [1], uncertaintyNotes: [], uncertainties: [], unsupportedContent: false },
 ], pagesRead: [1], allPagesRead: true, warnings: [] });

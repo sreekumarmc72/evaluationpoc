@@ -11,7 +11,7 @@ import { validatePdf } from './pdf.js';
 import { validateExam } from './validation.js';
 import { processRun } from './pipeline.js';
 
-type Options = { examCatalog: ExamCatalog; store: RunStore; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number };
+type Options = { examCatalog: ExamCatalog; store: RunStore; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; appOrigin?: string };
 const tierSchema = z.enum(['gpt-6.1-sol', 'sol-ultrafast']);
 export function registerExamRoutes(app: Express, options: Options) {
   const { examCatalog: catalog, store } = options;
@@ -33,9 +33,15 @@ export function registerExamRoutes(app: Express, options: Options) {
     } catch (error) { const safe = publicError(error); await catalog.failed(id, { code: safe.code, message: safe.message }, Date.now() - start); }
     finally { store.release(); console.info(JSON.stringify({ examId: id, status: catalog.get(id).metadata.status, durationMs: Date.now() - start })); }
   };
-  app.get('/api/exams', (_req, res) => res.json({ exams: catalog.list() }));
+  app.get('/api/exams', (_req, res) => res.json({ exams: catalog.list().map(exam => ({ ...exam, submissionCount: store.list(exam.id).length })) }));
   app.get('/api/exams/:id/student', (req, res, next) => { try { res.json({ metadata: catalog.get(req.params.id).metadata }); } catch (error) { next(error); } });
   app.get('/api/exams/:id', (req, res, next) => { try { res.json(catalog.get(req.params.id)); } catch (error) { next(error); } });
+  app.get('/api/exams/:id/submissions', (req, res, next) => { try {
+    catalog.get(req.params.id);
+    const all = store.list(req.params.id).filter(item => `${item.studentName ?? ''} ${item.id}`.toLowerCase().includes(String(req.query.search ?? '').toLowerCase().slice(0, 160)));
+    const page = Math.max(0, Math.floor(Number(req.query.page) || 0));
+    res.json({ submissions: all.slice(page * 50, (page + 1) * 50), total: all.length, page });
+  } catch (error) { next(error); } });
   app.patch('/api/exams/:id/model', express.json({ limit: '2kb' }), (req, res, next) => {
     let reserved = false;
     void (async () => { try {
@@ -79,9 +85,11 @@ export function registerExamRoutes(app: Express, options: Options) {
       if (!body.success) throw new AppError('INVALID_SUBMISSION', 'Only the answer sheet is accepted. The faculty has already selected the processing model.', 400);
       const model = selectModel(entry.metadata.model); if (!req.file) throw new AppError('MISSING_FILES', 'Upload one answer-sheet PDF.', 400);
       const start = Date.now(); const pages = await validatePdf(req.file.buffer, 'answerSheet', options.maxBytes, options.maxPages);
-      const run = await store.create({ answerSheet: req.file.buffer }, entry.metadata.model);
+      const run = await store.create({ answerSheet: req.file.buffer }, entry.metadata.model, { examId: entry.metadata.id, examVersion: entry.metadata.version, exam: entry.specification! });
       run.examId = entry.metadata.id; run.examVersion = entry.metadata.version; run.examReused = true; run.exam = entry.specification;
       run.stageDurations.validating = Date.now() - start; run.stageModels = model.stageModels ?? Object.fromEntries(['transcribing', 'resolving_answers', 'evaluating'].map(stage => [stage, 'gpt-6.1-sol']));
+      const token = store.takeAccessToken(run.id);
+      if (token) res.cookie('submission_access', token, { path: `/api/evaluations/${run.id}`, httpOnly: true, sameSite: 'strict', secure: req.secure || !!options.appOrigin?.startsWith('https://') || !!process.env.RENDER, maxAge: 30 * 86400000 });
       res.status(202).json({ id: run.id }); void processRun(run, store, model, pages, entry.specification!);
     } catch (error) { store.release(); next(error); } })(); });
   });

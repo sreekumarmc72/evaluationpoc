@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import { PDFDocument } from 'pdf-lib';
-import { mkdtemp, rm, access, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, access, writeFile, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createApp } from './app.js';
@@ -21,13 +21,92 @@ const fakeModel = (): EvaluationModel => ({
   grade: vi.fn(async () => ({ value: { ...gradingFixture(), results: gradingFixture().results.map(result => ({ ...result, criterionAwards: [{ criterionId: 'answer', marks: result.marks, evidence: 'Correct observed answer', reason: 'Matches key', sourceEntryIds: [result.identifier === '1' ? 'entry-1' : 'entry-2'] }] })) }, usage })),
 });
 let root: string; let store: RunStore; let catalog: ExamCatalog; let pdf: Buffer;
-beforeEach(async () => { root = await mkdtemp(path.join(tmpdir(), 'catalog-api-test-')); store = new RunStore(path.join(root, 'runs'), 3600000); catalog = new ExamCatalog(path.join(root, 'exams')); await catalog.initialize(); const doc = await PDFDocument.create(); doc.addPage(); pdf = Buffer.from(await doc.save()); });
-afterEach(async () => { await store.dispose(); await rm(root, { recursive: true, force: true }); });
+beforeEach(async () => { root = await mkdtemp(path.join(tmpdir(), 'catalog-api-test-')); store = new RunStore(path.join(root, 'runs'), 3600000, path.join(root, 'submissions')); await store.initialize(); catalog = new ExamCatalog(path.join(root, 'exams')); await catalog.initialize(); const doc = await PDFDocument.create(); doc.addPage(); pdf = Buffer.from(await doc.save()); });
+afterEach(async () => { await store.dispose(); await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 }); });
 const appFor = (model = fakeModel()) => createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model, 'sol-ultrafast': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000 });
 function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return request(app).post('/api/exams').field('name', name).attach('questionPaper', pdf, 'paper.pdf').attach('answerKey', pdf, 'key.pdf'); }
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('keeps reports and PDFs through cleanup, start-over and restart without changing existing exams', async () => {
+    const model = fakeModel(); const app = appFor(model); const created = await create(app); const before = await prepared(app, created.body.id);
+    const named = transcriptionFixture(); named.studentIdentity = { name: 'Anu Thomas', status: 'readable', sourcePages: [1], note: 'Labelled Name field on page 1.' };
+    vi.mocked(model.transcribe).mockResolvedValueOnce({ value: named, usage });
+    const submissions: string[] = [];
+    for (let i = 0; i < 2; i++) {
+      const response = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+      expect(response.status).toBe(202); submissions.push(response.body.id);
+      expect((await finished(app, response.body.id)).durable).toBe(true);
+      await request(app).delete(`/api/evaluations/${response.body.id}`);
+    }
+    await store.cleanup(Date.now() + 7200000);
+    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`)).body.total).toBe(2);
+    const filtered = await request(app).get(`/api/exams/${created.body.id}/submissions?search=Anu`);
+    expect(filtered.body.submissions[0].studentName).toBe('Anu Thomas');
+    expect((await request(app).get('/api/exams')).body.exams[0].submissionCount).toBe(2);
+    await store.dispose(); store = new RunStore(path.join(root, 'restarted-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    const restarted = appFor(model);
+    for (const id of submissions) { expect((await request(restarted).get(`/api/evaluations/${id}`)).body.stage).toBe('completed'); expect(await store.read(id, 'answerSheet')).toEqual(pdf); }
+    expect(catalog.get(created.body.id)).toEqual(before);
+    const json = await readFile(path.join(root, 'submissions', created.body.id, submissions[0], 'evaluation.json'), 'utf8');
+    expect(json).not.toContain('tokenHash'); expect(json).not.toContain('accessToken');
+  });
+  it('protects faculty history and PDFs while allowing each student only their own submission cookie', async () => {
+    const model = fakeModel(); const openApp = appFor(model); const created = await create(openApp); await prepared(openApp, created.body.id);
+    const password = 'test-faculty-password';
+    const app = createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: password, requireFacultyAuth: true });
+    expect((await request(app).get('/faculty')).status).toBe(401);
+    expect((await request(app).get('/api/exams')).status).toBe(401);
+    expect((await request(app).get('/API/EXAMS')).status).toBe(401);
+    expect((await request(app).get('/Faculty')).status).toBe(401);
+    expect((await request(app).get(`/api/exams/${created.body.id}/student`)).status).toBe(200);
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    expect(submitted.status).toBe(202); await finished(openApp, submitted.body.id);
+    const cookie = submitted.headers['set-cookie'][0].split(';')[0];
+    expect(submitted.headers['set-cookie'][0]).toContain('HttpOnly'); expect(submitted.headers['set-cookie'][0]).toContain('SameSite=Strict');
+    const runUrl = `/api/evaluations/${submitted.body.id}`;
+    expect((await request(app).get(runUrl)).status).toBe(401);
+    expect((await request(app).get(`${runUrl}/answer-sheet`)).status).toBe(401);
+    expect((await request(app).get(runUrl).set('Cookie', cookie)).body.stage).toBe('completed');
+    expect((await request(app).get(`${runUrl}/answer-sheet`).set('Cookie', cookie)).status).toBe(200);
+    expect((await request(app).patch(`${runUrl}/questions/1`).set('Cookie', cookie).send({ marks: 1, reason: 'Student override' })).status).toBe(401);
+    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`)).status).toBe(401);
+    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`).auth('faculty', password)).body.total).toBe(1);
+    const second = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'second.pdf'); await finished(openApp, second.body.id);
+    expect((await request(app).get(`/api/evaluations/${second.body.id}`).set('Cookie', cookie)).status).toBe(401);
+    expect((await request(app).get('/api/storage')).status).toBe(401);
+    expect((await request(app).get('/api/storage').auth('faculty', password)).body.storage.availableBytes).toBeGreaterThan(0);
+  });
+  it('retains interrupted submissions and their PDF without restarting model calls', async () => {
+    const created = await create(appFor()); await prepared(appFor(), created.body.id);
+    const run = await store.create({ answerSheet: pdf }, 'gpt-6.1-sol', { examId: created.body.id, examVersion: 1, exam: specification() });
+    const token = store.takeAccessToken(run.id)!; run.stage = 'transcribing'; await store.checkpoint(run); await store.dispose();
+    store = new RunStore(path.join(root, 'new-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    expect(store.get(run.id)?.error?.code).toBe('PROCESSING_INTERRUPTED'); expect(store.get(run.id)?.stage).toBe('failed');
+    expect(store.hasAccess(run.id, token)).toBe(true); expect(await store.read(run.id, 'answerSheet')).toEqual(pdf);
+  });
+  it('preserves damaged archive files and reports them to the faculty instead of deleting them', async () => {
+    const app = appFor(); const created = await create(app); await prepared(app, created.body.id);
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(app, submitted.body.id);
+    const filename = path.join(root, 'submissions', created.body.id, submitted.body.id, 'evaluation.json');
+    await writeFile(filename, 'damaged-json'); await store.dispose();
+    store = new RunStore(path.join(root, 'new-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    expect((await store.storageUsage())?.unreadableRecords).toEqual([{ examId: created.body.id, submissionId: submitted.body.id }]);
+    expect(await readFile(filename, 'utf8')).toBe('damaged-json');
+    await expect(access(path.join(root, 'submissions', created.body.id, submitted.body.id, 'answerSheet.pdf'))).resolves.toBeUndefined();
+  });
+  it('stops before billing on initial storage failure and never publishes unsaved completed results', async () => {
+    const model = fakeModel(); const app = appFor(model); const created = await create(app); await prepared(app, created.body.id);
+    const original = store.checkpoint.bind(store);
+    const checkpoint = vi.spyOn(store, 'checkpoint').mockRejectedValueOnce(new AppError('STORAGE_FAILURE', 'Disk full', 507));
+    expect((await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf')).status).toBe(507);
+    expect(model.transcribe).not.toHaveBeenCalled();
+    checkpoint.mockImplementation(async run => { if (run.stage === 'completed') throw new AppError('STORAGE_FAILURE', 'Disk full', 507); await original(run); });
+    const accepted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    const failed = await finished(app, accepted.body.id); expect(failed.stage).toBe('failed'); expect(failed.error.code).toBe('STORAGE_FAILURE');
+    const disk = JSON.parse(await readFile(path.join(root, 'submissions', created.body.id, accepted.body.id, 'evaluation.json'), 'utf8'));
+    expect(disk.stage).toBe('failed'); checkpoint.mockRestore();
+  });
   it('persists model edits and uses the latest saved model for future submissions without rebuilding the rubric', async () => {
     const standard = fakeModel(); const ultra = fakeModel();
     const app = createApp({ store, examCatalog: catalog, model: standard, models: { 'gpt-6.1-sol': standard, 'sol-ultrafast': ultra }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000 });

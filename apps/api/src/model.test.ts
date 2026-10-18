@@ -65,7 +65,8 @@ describe('OpenAI adapter', () => {
     const create = vi.fn(async (request: any) => {
       active++; peak = Math.max(peak, active);
       const payload = JSON.parse(request.input[0].content[0].text);
-      expect(payload.transcription).toEqual(transcription); expect(payload.resolution).toEqual(resolution);
+      const { studentIdentity: _identity, ...gradingTranscription } = transcription;
+      expect(payload.transcription).toEqual(gradingTranscription); expect(payload.resolution).toEqual(resolution);
       expect(payload.exam.questions).toHaveLength(1);
       const identifier = payload.exam.questions[0].identifier;
       await new Promise(resolve => setTimeout(resolve, identifier === '1' ? 15 : 1)); active--;

@@ -12,6 +12,10 @@ services:
     envVars:
       - key: OPENAI_API_KEY
         sync: false
+      - key: FACULTY_PASSWORD
+        sync: false
+      - key: FACULTY_USER
+        value: faculty
       - key: OPENAI_MODEL
         value: gpt-6.1-sol
       - key: DATA_DIR
