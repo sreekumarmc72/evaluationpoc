@@ -72,20 +72,22 @@ describe('Faculty and student exam API', () => {
     const model = fakeModel(); const open = appFor(model); const created = await create(open); await prepared(open, created.body.id);
     const password = 'test-name-password';
     const app = createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: password, requireFacultyAuth: true });
+    const facultyLogin = await request(app).post('/api/faculty/login').send({ username: 'faculty', password });
+    expect(facultyLogin.status).toBe(200); const facultyCookie = facultyLogin.headers['set-cookie'][0].split(';')[0];
     const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(open, submitted.body.id);
     const cookie = submitted.headers['set-cookie'][0].split(';')[0]; const url = `/api/evaluations/${submitted.body.id}/student-name`;
     expect((await request(app).patch(url).send({ name: 'Anu' })).status).toBe(401);
     expect((await request(app).patch(url).set('Cookie', 'submission_access=wrong').send({ name: 'Anu' })).status).toBe(401);
     expect((await request(app).patch(url).set('Cookie', cookie).send({ name: 'Anu' })).status).toBe(200);
     expect((await request(app).patch(`/api/evaluations/${submitted.body.id}/questions/1`).set('Cookie', cookie).send({ marks: 2, reason: 'Override' })).status).toBe(401);
-    expect((await request(app).patch(url).auth('faculty', password).send({ name: 'Anu Thomas' })).status).toBe(200);
+    expect((await request(app).patch(url).set('Cookie', facultyCookie).send({ name: 'Anu Thomas' })).status).toBe(200);
     const identity = transcriptionFixture(); identity.studentIdentity = { name: 'Readable Student', status: 'readable', sourcePages: [1], note: 'Name field' };
     vi.mocked(model.transcribe).mockResolvedValueOnce({ value: identity, usage });
     const named = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'named.pdf'); await finished(open, named.body.id);
     expect((await request(app).patch(`/api/evaluations/${named.body.id}/student-name`).set('Cookie', cookie).send({ name: 'Wrong session' })).status).toBe(401);
-    expect((await request(app).patch(`/api/evaluations/${named.body.id}/student-name`).auth('faculty', password).send({ name: 'Replacement' })).status).toBe(409);
+    expect((await request(app).patch(`/api/evaluations/${named.body.id}/student-name`).set('Cookie', facultyCookie).send({ name: 'Replacement' })).status).toBe(409);
     const active = await store.create({ answerSheet: pdf }, 'gpt-6.1-sol', { examId: created.body.id, examVersion: 1, exam: specification() });
-    expect((await request(app).patch(`/api/evaluations/${active.id}/student-name`).auth('faculty', password).send({ name: 'Too early' })).status).toBe(409);
+    expect((await request(app).patch(`/api/evaluations/${active.id}/student-name`).set('Cookie', facultyCookie).send({ name: 'Too early' })).status).toBe(409);
   });
   it('persists a title edit without changing the exam ID, rubric, model or documents', async () => {
     const model = fakeModel(); const app = appFor(model); const created = await create(app); const before = await prepared(app, created.body.id);
@@ -152,12 +154,14 @@ describe('Faculty and student exam API', () => {
     const model = fakeModel(); const openApp = appFor(model); const created = await create(openApp); await prepared(openApp, created.body.id);
     const password = 'test-faculty-password';
     const app = createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: password, requireFacultyAuth: true });
-    expect((await request(app).get('/faculty')).status).toBe(401);
+    const facultyLogin = await request(app).post('/api/faculty/login').send({ username: 'faculty', password });
+    expect(facultyLogin.status).toBe(200); const facultyCookie = facultyLogin.headers['set-cookie'][0].split(';')[0];
+    expect((await request(app).get('/faculty')).status).toBe(302);
     expect((await request(app).get('/api/exams')).status).toBe(401);
     expect((await request(app).patch(`/api/exams/${created.body.id}`).send({ name: 'Unauthorised' })).status).toBe(401);
     expect((await request(app).delete(`/api/exams/${created.body.id}`).send({ confirmationId: created.body.id, confirmationName: 'Accounting', acknowledged: true })).status).toBe(401);
     expect((await request(app).get('/API/EXAMS')).status).toBe(401);
-    expect((await request(app).get('/Faculty')).status).toBe(401);
+    expect((await request(app).get('/Faculty')).status).toBe(302);
     expect((await request(app).get(`/api/exams/${created.body.id}/student`)).status).toBe(200);
     const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
     expect(submitted.status).toBe(202); await finished(openApp, submitted.body.id);
@@ -170,11 +174,11 @@ describe('Faculty and student exam API', () => {
     expect((await request(app).get(`${runUrl}/answer-sheet`).set('Cookie', cookie)).status).toBe(200);
     expect((await request(app).patch(`${runUrl}/questions/1`).set('Cookie', cookie).send({ marks: 1, reason: 'Student override' })).status).toBe(401);
     expect((await request(app).get(`/api/exams/${created.body.id}/submissions`)).status).toBe(401);
-    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`).auth('faculty', password)).body.total).toBe(1);
+    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`).set('Cookie', facultyCookie)).body.total).toBe(1);
     const second = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'second.pdf'); await finished(openApp, second.body.id);
     expect((await request(app).get(`/api/evaluations/${second.body.id}`).set('Cookie', cookie)).status).toBe(401);
     expect((await request(app).get('/api/storage')).status).toBe(401);
-    expect((await request(app).get('/api/storage').auth('faculty', password)).body.storage.availableBytes).toBeGreaterThan(0);
+    expect((await request(app).get('/api/storage').set('Cookie', facultyCookie)).body.storage.availableBytes).toBeGreaterThan(0);
   });
   it('retains interrupted submissions and their PDF without restarting model calls', async () => {
     const created = await create(appFor()); await prepared(appFor(), created.body.id);

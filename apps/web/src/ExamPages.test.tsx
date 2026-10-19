@@ -330,6 +330,26 @@ describe('Faculty page', () => {
   });
 });
 describe('Student page', () => {
+  it('shows the saved student name in the profile and leaves without deleting or forgetting the submission', async () => {
+    sessionStorage.setItem(`student-run-id:${id}`, 'submission');
+    const value = { ...result(), durable: true, manualStudentName: { name: 'Anu Thomas', updatedAt: 1 } };
+    const mock = vi.fn(async (url: string, _init?: RequestInit) => response(url.endsWith('/student') ? { metadata: exam() } : value));
+    const navigate = vi.fn(); vi.stubGlobal('fetch', mock); render(<StudentPage examId={id} navigate={navigate} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Student profile: Anu Thomas' }));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Log out' }));
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith('/student?left=1'));
+    expect(sessionStorage.getItem(`student-run-id:${id}`)).toBe('submission');
+    expect(mock.mock.calls.some(([, init]) => init?.method === 'DELETE' || init?.method === 'POST')).toBe(false);
+  });
+  it('shows a neutral student exit page without clearing saved submission pointers or making API calls', () => {
+    const original = window.location.href; window.history.replaceState({}, '', '/student?left=1');
+    try {
+      sessionStorage.setItem(`student-run-id:${id}`, 'submission'); const mock = vi.fn(); vi.stubGlobal('fetch', mock);
+      render(<StudentPage examId="" />); expect(screen.getByRole('heading', { name: 'You have left the exam.' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Student profile/ })).not.toBeInTheDocument();
+      expect(sessionStorage.getItem(`student-run-id:${id}`)).toBe('submission'); expect(mock).not.toHaveBeenCalled();
+    } finally { window.history.replaceState({}, '', original); }
+  });
   it('shows available and required question counts and public selection instructions', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ metadata: { ...exam(), name: 'Cost accounting', questionCount: 6, requiredQuestionCount: 4, maximumMarks: 50, selectionInstructions: [{ sectionId: 'A', instructions: 'Answer any two. Each carries 10 marks.', requiredCount: 2, availableCount: 3, maximumMarks: 20 }] } })));
     render(<StudentPage examId={id} />);

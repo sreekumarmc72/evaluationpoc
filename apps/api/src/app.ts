@@ -12,16 +12,17 @@ import { processRun } from './pipeline.js';
 import { examFields, type RetainedExamStore } from './retained-exam.js';
 import type { ExamCatalog } from './exam-catalog.js';
 import { registerExamRoutes } from './exam-routes.js';
-import { facultyAccess } from './access.js';
+import { createFacultyAuth } from './access.js';
 
-type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string; facultyPassword?: string; facultyUser?: string; requireFacultyAuth?: boolean };
+type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string; facultyPassword?: string; facultyUser?: string; facultyDisplayName?: string; requireFacultyAuth?: boolean };
 export function createApp(options: Options) {
   const app = express();
   app.disable('x-powered-by');
   const allowedOrigin = options.appOrigin ? new URL(options.appOrigin).origin : null;
   app.use((_req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   app.use((_req, res, next) => { res.set('Referrer-Policy', 'no-referrer').set('X-Content-Type-Options', 'nosniff').set('X-Frame-Options', 'SAMEORIGIN'); next(); });
-  app.use(facultyAccess(options));
+  const facultyAuth = createFacultyAuth(options);
+  app.use(facultyAuth.middleware);
   app.get('/api/storage', (_req, res, next) => { void options.store.storageUsage().then(storage => res.json({ storage })).catch(next); });
   // Same-origin writes only. CLI clients without Origin remain supported.
   app.use((req, _res, next) => {
@@ -35,6 +36,7 @@ export function createApp(options: Options) {
     }
     next();
   });
+  facultyAuth.registerRoutes(app);
   const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: options.maxBytes, files: 3, fields: 1, fieldSize: 100, parts: 4 } }).fields(uploadFields.map(name => ({ name, maxCount: 1 })));
   app.get('/api/health', (_req, res, next) => {
     void (async () => { const saved = await options.retainedExam?.read(); res.json({ ok: true, configured: options.configured, durableStudentSubmissions: options.store.supportsHistory, facultyAccessConfigured: !!options.facultyPassword, model: options.modelId, models: selectableModels.filter(id => !!options.models?.[id]), limits: { maxFileBytes: options.maxBytes, maxPages: options.maxPages }, retentionMs: options.retentionMs, retainedExam: options.retainedExam?.metadata(saved ?? null) ?? null }); })().catch(next);
@@ -117,7 +119,7 @@ export function createApp(options: Options) {
   if (options.webRoot) {
     const webRoot = path.resolve(options.webRoot);
     app.use(express.static(webRoot, { index: false, dotfiles: 'deny' }));
-    app.get(['/', '/faculty', '/faculty/', '/student', '/student/', '/student/:examId', '/student/:examId/'], (_req, res, next) => {
+    app.get(['/', '/faculty', '/faculty/', '/faculty/login', '/faculty/login/', '/student', '/student/', '/student/:examId', '/student/:examId/'], (_req, res, next) => {
       res.sendFile(path.join(webRoot, 'index.html'), error => { if (error) next(error); });
     });
   }
