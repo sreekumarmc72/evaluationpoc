@@ -8,7 +8,7 @@ import { createApp } from './app.js';
 import { ExamCatalog } from './exam-catalog.js';
 import { RunStore } from './store.js';
 import type { EvaluationModel } from './model.js';
-import { examFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
+import { examFixture, optionalExamFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
 import { directResolution } from './validation.js';
 import { AppError } from './errors.js';
 
@@ -28,6 +28,28 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('prepares all optional rubrics, evaluates sheet-only selections out of 50 and retains that denominator after review and restart', async () => {
+    const model = fakeModel(); const optional = optionalExamFixture();
+    vi.mocked(model.extract).mockResolvedValue({ value: optional, usage });
+    const t = transcriptionFixture(); t.answers = ['1', '2', '4', '5'].map((identifier, index) => ({ ...t.answers[0], entryId: `entry-${index + 1}`, identifier }));
+    vi.mocked(model.transcribe).mockResolvedValue({ value: t, usage });
+    vi.mocked(model.grade).mockResolvedValue({ value: { results: optional.questions.map(q => {
+      const source = t.answers.find(a => a.identifier === q.identifier); const marks = source ? q.maximumMarks : 0;
+      return { identifier: q.identifier, maximumMarks: q.maximumMarks, marks, status: source ? 'graded' : 'unattempted', justification: 'Observed answer', correctPoints: [], missingPoints: [], reviewFlags: [], notes: [], uncertaintyDecisions: [], criterionAwards: [{ criterionId: 'answer', marks, evidence: source ? 'Observed answer' : '', reason: 'Key comparison', sourceEntryIds: source ? [source.entryId] : [] }] };
+    }), warnings: [] }, usage });
+    const app = appFor(model); const created = await create(app, 'Cost accounting'); const preparedExam = await prepared(app, created.body.id);
+    expect(preparedExam.metadata).toMatchObject({ status: 'ready', questionCount: 6, requiredQuestionCount: 4, maximumMarks: 50 });
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'optional-sheet.pdf');
+    const run = await finished(app, submitted.body.id); expect(run.totals).toMatchObject({ totalMarks: 50, maximumMarks: 50 });
+    expect(run.results.find((r: { identifier: string }) => r.identifier === '3').selectionStatus).toBe('not_selected');
+    const review = await request(app).patch(`/api/evaluations/${run.id}/questions/1`).send({ marks: 8, reason: 'Reviewed method' });
+    expect(review.body.totals).toMatchObject({ totalMarks: 48, maximumMarks: 50 });
+    await store.dispose(); store = new RunStore(path.join(root, 'optional-restart-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    const reopened = new ExamCatalog(path.join(root, 'exams')); await reopened.initialize();
+    expect(reopened.get(created.body.id).metadata.maximumMarks).toBe(50);
+    expect(store.get(run.id)?.totals?.totalMarks).toBe(48);
+    expect(store.list(created.body.id)[0].totals?.maximumMarks).toBe(50);
+  });
   it('saves a manual name without changing scan identity, grading bytes or PDFs, and reloads it after restart', async () => {
     const app = appFor(); const created = await create(app); await prepared(app, created.body.id);
     const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');

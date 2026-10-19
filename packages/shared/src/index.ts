@@ -34,7 +34,13 @@ export const MarksEvidenceSchema = z.object({
     questions: z.array(z.object({ identifier: z.string(), printedMarks: z.number().positive().nullable(), source: z.string() })),
   })),
 });
+export const SelectionGroupSchema = z.object({
+  id: z.string(), questionIds: z.array(z.string()), requiredCount: z.number().int().positive(),
+  maximumMarks: z.number().positive(), instructions: z.string(), sourcePages: z.array(z.number().int().positive()),
+  excessPolicy: z.enum(['review', 'first_in_script']), excessInstructions: z.string(),
+});
 export const ExamSchema = z.object({
+  selectionGroups: z.array(SelectionGroupSchema).optional(),
   policyVersion: z.string().nullable(),
   questions: z.array(QuestionSchema), optionalQuestions: z.boolean(),
   issues: z.array(z.string()), warnings: z.array(z.string()),
@@ -46,6 +52,7 @@ export const UncertaintySchema = z.object({
   impact: z.enum(['non_material', 'potentially_score_changing']),
 });
 export const AnswerSchema = z.object({
+  withdrawn: z.boolean().optional(), withdrawalEvidence: z.string().optional(),
   entryId: z.string(),
   identifier: z.string().nullable(), text: z.string(), sourcePages: z.array(z.number().int()),
   uncertaintyNotes: z.array(z.string()), unsupportedContent: z.boolean(),
@@ -66,6 +73,8 @@ export const ResolutionSchema = z.object({
   warnings: z.array(z.string()),
 });
 export const ResultSchema = z.object({
+  selectionStatus: z.enum(['counted', 'not_selected', 'pending_selection']).optional(),
+  selectionNote: z.string().optional(),
   identifier: z.string(), maximumMarks: z.number(), marks: z.number().nullable(),
   status: z.enum(['graded', 'unattempted', 'needs_review']), justification: z.string(),
   correctPoints: z.array(z.string()), missingPoints: z.array(z.string()), reviewFlags: z.array(z.string()),
@@ -77,6 +86,12 @@ export const ResultSchema = z.object({
 });
 export const GradingSchema = z.object({ results: z.array(ResultSchema), warnings: z.array(z.string()) });
 export const TotalsSchema = z.object({
+  sectionResults: z.array(z.object({
+    sectionId: z.string(), instructions: z.string(), requiredCount: z.number().int(), maximumMarks: z.number(),
+    countedQuestionIds: z.array(z.string()), notSelectedQuestionIds: z.array(z.string()), pendingQuestionIds: z.array(z.string()),
+    gradedSubtotal: z.number(), totalMarks: z.number().nullable(), provisionalTotal: z.number().nullable(),
+    reviewFlags: z.array(z.string()), notes: z.array(z.string()),
+  })).optional(),
   maximumMarks: z.number(), gradedSubtotal: z.number(), totalMarks: z.number().nullable(),
   percentage: z.number().nullable(), pendingQuestions: z.array(z.string()),
   provisionalTotal: z.number().nullable().optional(), provisionalPercentage: z.number().nullable().optional(),
@@ -98,6 +113,11 @@ export const RunSchema = z.object({
   examId: z.string().optional(), examVersion: z.number().int().optional(),
 });
 export type Exam = z.infer<typeof ExamSchema>;
+export function examMaximumMarks(exam: Exam): number {
+  if (!exam.optionalQuestions) return exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0);
+  const grouped = new Set(exam.selectionGroups?.flatMap(group => group.questionIds) ?? []);
+  return (exam.selectionGroups ?? []).reduce((sum, group) => sum + group.maximumMarks, 0) + exam.questions.filter(q => !grouped.has(q.identifier)).reduce((sum, q) => sum + q.maximumMarks, 0);
+}
 export type Transcription = z.infer<typeof TranscriptionSchema>;
 export type Resolution = z.infer<typeof ResolutionSchema>;
 export type Grading = z.infer<typeof GradingSchema>;
@@ -121,6 +141,8 @@ export function displayedTotals(totals: Totals): Totals {
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const PreparedExamSchema = z.object({
+  requiredQuestionCount: z.number().int().positive().optional(),
+  selectionInstructions: z.array(z.object({ sectionId: z.string(), instructions: z.string(), requiredCount: z.number().int(), availableCount: z.number().int(), maximumMarks: z.number() })).optional(),
   id: z.string().uuid(), name: z.string().trim().min(1).max(120), version: z.number().int().positive(),
   status: z.enum(['preparing', 'ready', 'failed']), model: z.enum(['gpt-6.1-sol', 'sol-ultrafast']),
   preparationModel: z.enum(['gpt-6.1-sol', 'sol-ultrafast']).optional(),

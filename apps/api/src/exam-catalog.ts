@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { PreparedExamSchema, type PreparedExam, type Exam, type Usage } from '@poc/shared';
+import { PreparedExamSchema, examMaximumMarks, type PreparedExam, type Exam, type Usage } from '@poc/shared';
 import { validateExam } from './validation.js';
 import { AppError } from './errors.js';
 
@@ -91,8 +91,13 @@ export class ExamCatalog {
   }
   async ready(id: string, specification: Exam, usage: Usage, durationMs: number) {
     const exam = this.validateSpecification(specification); const entry = this.get(id);
+    if (exam.optionalQuestions) {
+      const grouped = new Set(exam.selectionGroups!.flatMap(group => group.questionIds));
+      entry.metadata.requiredQuestionCount = exam.selectionGroups!.reduce((sum, group) => sum + group.requiredCount, 0) + exam.questions.filter(q => !grouped.has(q.identifier)).length;
+      entry.metadata.selectionInstructions = exam.selectionGroups!.map(group => ({ sectionId: group.id, instructions: group.instructions, requiredCount: group.requiredCount, availableCount: group.questionIds.length, maximumMarks: group.maximumMarks }));
+    }
     await this.write(id, 'specification.json', exam);
-    Object.assign(entry.metadata, { status: 'ready', finishedAt: Date.now(), questionCount: exam.questions.length, maximumMarks: exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0), usage, durationMs, warnings: exam.warnings, error: null });
+    Object.assign(entry.metadata, { status: 'ready', finishedAt: Date.now(), questionCount: exam.questions.length, maximumMarks: examMaximumMarks(exam), usage, durationMs, warnings: exam.warnings, error: null });
     await this.write(id, 'metadata.json', entry.metadata); entry.specification = exam; this.entries.set(id, entry);
   }
   async failed(id: string, error: { code: string; message: string }, durationMs: number) {

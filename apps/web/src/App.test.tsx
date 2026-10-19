@@ -13,6 +13,25 @@ const run = (pending = false): EvaluationRun => ({
 });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 describe('Results UI', () => {
+  it('shows section selection and excludes unused alternatives from the displayed total', () => {
+    const value = run();
+    value.results[0].selectionStatus = 'not_selected'; value.results[0].selectionNote = 'Optional alternative not selected — no deduction for this question.';
+    value.totals = { maximumMarks: 20, gradedSubtotal: 10, totalMarks: 10, percentage: 50, pendingQuestions: [], sectionResults: [{ sectionId: 'A', instructions: 'Answer any two. Each carries 10 marks.', requiredCount: 2, maximumMarks: 20, countedQuestionIds: ['2'], notSelectedQuestionIds: ['1', '3'], pendingQuestionIds: [], gradedSubtotal: 10, totalMarks: 10, provisionalTotal: 10, reviewFlags: [], notes: ['1 of 2 required answers attempted; missing answer slots receive no marks.'] }] };
+    const { container } = render(<Results run={value} />);
+    expect(container.querySelector('.score')).toHaveTextContent('10 / 20');
+    expect(screen.getByText('Section scores & counted answers')).toBeInTheDocument();
+    expect(screen.getByText(/Counted: 2/)).toBeInTheDocument();
+    expect(screen.getByText('Not selected — no deduction')).toBeInTheDocument();
+    expect(screen.getByText(/1 of 2 required answers attempted/)).toBeInTheDocument();
+  });
+  it('does not show a final score when all optional selections need review', () => {
+    const value = run(); value.results[0].selectionStatus = 'pending_selection'; value.results[0].selectionNote = 'Too many answers';
+    value.totals = { maximumMarks: 20, gradedSubtotal: 0, totalMarks: null, percentage: null, pendingQuestions: ['1'], provisionalTotal: null };
+    const { container } = render(<Results run={value} />);
+    expect(container.querySelector('.score')).toHaveTextContent('No marks finalised');
+    expect(screen.getByText('Selection pending review')).toBeInTheDocument();
+    expect(screen.queryByText(/80%/)).not.toBeInTheDocument();
+  });
   it.each([[4.75, '5 / 5', '100%'], [4.25, '4 / 5', '80%'], [4.5, '4.5 / 5', '90%']])('rounds only the overall total for %s and retains exact question marks', (raw, displayed, percent) => {
     const value = run(); value.results[0].marks = raw;
     Object.assign(value.totals!, { gradedSubtotal: raw, totalMarks: raw, percentage: raw / 5 * 100 });

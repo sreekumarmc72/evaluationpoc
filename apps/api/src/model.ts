@@ -1,11 +1,12 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { ExamSchema, MarksEvidenceSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, StudentIdentitySchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
+import { ExamSchema, SelectionGroupSchema, AnswerSchema, MarksEvidenceSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, StudentIdentitySchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
 import { createHash } from 'node:crypto';
 import { validateExam } from './validation.js';
 import { extractionPrompt, transcriptionPrompt, gradingPrompt, resolutionPrompt } from './prompts.js';
 import { AppError } from './errors.js';
+import { activeAnswers } from './optional-sections.js';
 
 export type ModelResponse = { value: unknown; usage: Usage; examReused?: boolean };
 export interface EvaluationModel {
@@ -62,7 +63,7 @@ export class OpenAIModel implements EvaluationModel {
     const saved = await this.options.examStorage?.get(fingerprint);
     if (saved) return { value: structuredClone(validateExam(saved)), examReused: true, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
     for (const [id, entry] of this.examCache) if (entry.expires <= Date.now()) this.examCache.delete(id);
-    const schema = ExamSchema.extend({ marksEvidence: MarksEvidenceSchema.nullable(), questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
+    const schema = ExamSchema.extend({ selectionGroups: z.array(SelectionGroupSchema), marksEvidence: MarksEvidenceSchema.nullable(), questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
     const response = await this.call(schema, 'exam_with_rubric', extractionPrompt, [
       { type: 'input_text', text: 'Question paper:' }, pdf('question-paper.pdf', questionPaper),
       { type: 'input_text', text: 'Answer key:' }, pdf('answer-key.pdf', answerKey),
@@ -74,7 +75,7 @@ export class OpenAIModel implements EvaluationModel {
     return { ...response, value: structuredClone(exam) };
   }
   transcribe(answerSheet: Buffer) {
-    return this.call(TranscriptionSchema.extend({ studentIdentity: StudentIdentitySchema }), 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
+    return this.call(TranscriptionSchema.extend({ studentIdentity: StudentIdentitySchema, answers: z.array(AnswerSchema.extend({ withdrawn: z.boolean(), withdrawalEvidence: z.string() })) }), 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
   }
   resolve(answerSheet: Buffer, questions: Array<{ identifier: string; text: string }>, transcription: Transcription) {
     // Project fields here as well as in the pipeline: never leak the key to reading.
@@ -82,6 +83,7 @@ export class OpenAIModel implements EvaluationModel {
     return this.call(ResolutionSchema, 'answer_resolution', resolutionPrompt, [pdf('answer-sheet.pdf', answerSheet), { type: 'input_text', text: JSON.stringify({ questions: paper, transcription }) }]);
   }
   async grade(exam: Exam, transcription: Transcription, resolution?: Resolution) {
+    if (exam.optionalQuestions) transcription = { ...transcription, answers: activeAnswers(transcription, exam) };
     if (!this.options.parallelGrading || exam.questions.length <= 1) return this.gradeRequest(exam, transcription, resolution);
     // Keep full reading/mapping context so ambiguous or unmatched content cannot
     // turn an answer into a falsely unattempted question. Only the scoring target
@@ -106,7 +108,7 @@ export class OpenAIModel implements EvaluationModel {
     // uncertainty assessments. Convert to the public array contract at this boundary.
     const questions = Object.fromEntries(exam.questions.map(q => {
       const decisions = Object.fromEntries(transcription.answers.filter(a => a.identifier === q.identifier).flatMap(a => a.uncertainties).map(u => [u.id, z.object({ affectsMarks: z.boolean(), reason: z.string() }).strict()]));
-      const base = ResultSchema.omit({ teacherAdjustment: true, marks: true, provisionalMarks: true, criterionAwards: true }).extend({ identifier: z.literal(q.identifier), maximumMarks: z.literal(q.maximumMarks), uncertaintyDecisions: z.object(decisions).strict() });
+      const base = ResultSchema.omit({ selectionStatus: true, selectionNote: true, teacherAdjustment: true, marks: true, provisionalMarks: true, criterionAwards: true }).extend({ identifier: z.literal(q.identifier), maximumMarks: z.literal(q.maximumMarks), uncertaintyDecisions: z.object(decisions).strict() });
       return [q.identifier, q.rubric?.length ? base.extend({ criterionAwards: z.object(Object.fromEntries(q.rubric.map(c => [c.id, CriterionAwardSchema.omit({ criterionId: true }).strict()]))).strict() }).strict() : base.extend({ assessedMarks: z.number().nullable() }).strict()];
     }));
     const schema = z.object({ results: z.object(questions).strict(), warnings: z.array(z.string()) }).strict();

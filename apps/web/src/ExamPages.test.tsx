@@ -330,6 +330,13 @@ describe('Faculty page', () => {
   });
 });
 describe('Student page', () => {
+  it('shows available and required question counts and public selection instructions', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ metadata: { ...exam(), name: 'Cost accounting', questionCount: 6, requiredQuestionCount: 4, maximumMarks: 50, selectionInstructions: [{ sectionId: 'A', instructions: 'Answer any two. Each carries 10 marks.', requiredCount: 2, availableCount: 3, maximumMarks: 20 }] } })));
+    render(<StudentPage examId={id} />);
+    await screen.findByText(/6 questions available · 4 required/);
+    expect(screen.getByRole('region', { name: 'Exam selection instructions' })).toHaveTextContent('Answer any two. Each carries 10 marks.');
+    expect(screen.getByLabelText('Handwritten answer sheet')).toBeInTheDocument();
+  });
   it('loads the URL exam without selectors and submits only the answer sheet', async () => {
     vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:test'), revokeObjectURL: vi.fn() }));
     const mock = vi.fn(async (url: string, init?: RequestInit) => response(url.endsWith('/student') ? { metadata: exam() } : init?.method === 'POST' ? { id: 'submission' } : result(), init?.method === 'POST' ? 202 : 200));

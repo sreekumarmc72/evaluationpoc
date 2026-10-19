@@ -1,12 +1,13 @@
-import { ExamSchema, TranscriptionSchema, ResolutionSchema, GradingSchema, type Exam, type Transcription, type Resolution, type QuestionResult, type Totals } from '@poc/shared';
+import { ExamSchema, examMaximumMarks, TranscriptionSchema, ResolutionSchema, GradingSchema, type Exam, type Transcription, type Resolution, type QuestionResult, type Totals } from '@poc/shared';
 import { AppError } from './errors.js';
+import { validateSelectionRules, applyOptionalSelection, optionalTotals, activeAnswers } from './optional-sections.js';
 
 const fail = (message: string): never => { throw new AppError('INVALID_MODEL_RESULT', message); };
 export function validateExam(value: unknown): Exam {
   const parsed = ExamSchema.safeParse(value);
   if (!parsed.success) return fail('The model returned an invalid exam specification.');
   const exam = parsed.data;
-  if (exam.optionalQuestions) throw new AppError('UNSUPPORTED_EXAM', 'Optional-question selection is not supported. Use a paper where every question contributes to the total.');
+  validateSelectionRules(exam);
   if (exam.issues.length) throw new AppError('EXAM_ISSUES', `Cannot evaluate this exam: ${exam.issues.join('; ')}`);
   if (!exam.questions.length) return fail('No scored questions were found.');
   const ids = new Set<string>();
@@ -20,7 +21,7 @@ export function validateExam(value: unknown): Exam {
     }
     ids.add(q.identifier);
   }
-  const total = exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0);
+  const total = examMaximumMarks(exam);
   if (!Number.isFinite(total)) return fail('The maximum mark total is invalid.');
   validateMarksEvidence(exam, total);
   return exam;
@@ -41,11 +42,12 @@ function validateMarksEvidence(exam: Exam, total: number) {
       seen.add(item.identifier);
       if (item.printedMarks !== null && (!item.source.trim() || !same(item.printedMarks, question.maximumMarks))) return fail(`Question ${item.identifier} differs from its explicit printed marks or lacks source evidence.`);
     }
-    const subtotal = section.questions.reduce((sum, item) => sum + exam.questions.find(q => q.identifier === item.identifier)!.maximumMarks, 0);
+    const subtotal = exam.selectionGroups?.find(group => group.id === section.identifier)?.maximumMarks ?? section.questions.reduce((sum, item) => sum + exam.questions.find(q => q.identifier === item.identifier)!.maximumMarks, 0);
     if (section.headingScope === 'section_total' && (section.headingMarks === null || !same(subtotal, section.headingMarks))) return fail(`Section ${section.identifier} conflicts with its explicitly stated section total.`);
     if (section.headingScope === 'per_question' && (section.headingMarks === null || section.questions.some(item => !same(exam.questions.find(q => q.identifier === item.identifier)!.maximumMarks, section.headingMarks!)))) return fail(`Section ${section.identifier} conflicts with its explicit per-question heading.`);
   }
   for (const section of evidence.sections.filter(s => s.headingScope === 'ambiguous' && s.headingMarks !== null)) {
+    if (exam.optionalQuestions) return fail('Ambiguous optional section headings require explicit selection and mark instructions.');
     const allExplicit = seen.size === exam.questions.length && evidence.sections.every(s => s.questions.every(q => q.printedMarks !== null && q.source.trim()));
     if (evidence.printedTotal === null || !allExplicit || section.questions.some(q => !same(q.printedMarks!, section.headingMarks!))) return fail(`Section ${section.identifier} has an ambiguous marks heading that cannot be reconciled from explicit question marks and the printed exam maximum.`);
     const subtotal = section.questions.reduce((sum, q) => sum + q.printedMarks!, 0);
@@ -87,6 +89,7 @@ export function validateTranscription(value: unknown, pageCount: number): Transc
     return !labelOnly;
   });
   for (const [index, a] of t.answers.entries()) {
+    if (a.withdrawn && !a.withdrawalEvidence?.trim()) return fail('A withdrawn answer requires visible cancellation evidence.');
     if (!a.text.trim() || !a.sourcePages.length || a.sourcePages.some(p => !validPage(p) || !t.pagesRead.includes(p))) return fail(`Transcription entry ${a.entryId} (question label ${a.identifier ?? 'unmatched'}) needs written content and valid inspected source pages; reported pages: ${a.sourcePages.join(', ') || 'none'}.`);
     if (a.identifier === 'null') a.identifier = null;
     if (a.identifier !== null && !a.identifier.trim()) return fail('A transcribed question ID is empty.');
@@ -159,17 +162,20 @@ export function validateGrading(value: unknown, exam: Exam, transcription: Trans
   const parsed = GradingSchema.safeParse(value);
   if (!parsed.success) return fail('The model returned malformed grades.');
   const grading = parsed.data;
+  const active = activeAnswers(transcription, exam);
+  const activeIds = new Set(active.map(a => a.entryId));
   const expected = new Map(exam.questions.map(q => [q.identifier, q]));
   const found = new Set<string>();
   if (grading.results.length !== expected.size) return fail('The grading response must include exactly one entry per question.');
   for (const r of grading.results) {
+    delete r.selectionStatus; delete r.selectionNote; // Selection is application-owned.
     const q = expected.get(r.identifier);
     if (!q || found.has(r.identifier)) return fail('The grading response contains unknown or duplicate question IDs.');
     found.add(r.identifier);
     if (q.rubric?.length) {
       const awards = r.criterionAwards;
       if (!awards || awards.length !== q.rubric.length || new Set(awards.map(a => a.criterionId)).size !== awards.length) return fail(`Missing or duplicate rubric awards for question ${q.identifier}.`);
-      const mappedIds = new Set(resolution.mappings.filter(m => m.questionId === q.identifier).map(m => m.entryId));
+      const mappedIds = new Set(resolution.mappings.filter(m => m.questionId === q.identifier && activeIds.has(m.entryId)).map(m => m.entryId));
       for (const a of awards) {
         const c = q.rubric.find(c => c.id === a.criterionId);
         if (!c || !a.reason.trim() || (a.marks !== null && (!Number.isFinite(a.marks) || a.marks < 0 || a.marks > c.maximumMarks)) || new Set(a.sourceEntryIds).size !== a.sourceEntryIds.length || a.sourceEntryIds.some(id => !mappedIds.has(id)) || (a.marks !== null && a.marks > 0 && (!a.evidence.trim() || !a.sourceEntryIds.length))) return fail(`Invalid rubric award or evidence for question ${q.identifier}.`);
@@ -204,11 +210,11 @@ export function validateGrading(value: unknown, exam: Exam, transcription: Trans
   if (!transcription.allPagesRead) globalFlags.push('Not all answer-sheet pages could be read.');
   // Warnings include informational scan observations. Blocking uncertainty belongs
   // in incomplete coverage or the affected answer's uncertaintyNotes.
-  const unresolved = resolution.mappings.filter(m => m.questionId === null);
+  const unresolved = resolution.mappings.filter(m => m.questionId === null && activeIds.has(m.entryId));
   const results = exam.questions.map(q => {
     const r = grading.results.find(entry => entry.identifier === q.identifier)!;
     const entryIds = new Set(resolution.mappings.filter(m => m.questionId === q.identifier).map(m => m.entryId));
-    const answers = transcription.answers.filter(a => entryIds.has(a.entryId));
+    const answers = active.filter(a => entryIds.has(a.entryId));
     const flags = [...globalFlags];
     const ambiguousMapping = unresolved.some(m => m.candidateQuestionIds.includes(q.identifier));
     if (ambiguousMapping) flags.push('Some answer content has an unresolved association with this question.');
@@ -232,9 +238,11 @@ export function validateGrading(value: unknown, exam: Exam, transcription: Trans
     if (r.status === 'needs_review' && !r.reviewFlags.length) r.reviewFlags.push('The model could not provide a reliable score. Review the answer and justification.');
     return r;
   });
-  return { results, warnings: grading.warnings, totals: calculateTotals(results) };
+  applyOptionalSelection(results, exam, transcription, resolution);
+  return { results, warnings: grading.warnings, totals: calculateTotals(results, exam) };
 }
-export function calculateTotals(results: QuestionResult[]): Totals {
+export function calculateTotals(results: QuestionResult[], exam?: Exam | null): Totals {
+  if (exam?.optionalQuestions) return optionalTotals(results, exam);
   const effective = (r: QuestionResult) => r.teacherAdjustment?.marks ?? r.marks;
   const pendingQuestions = results.filter(r => effective(r) === null).map(r => r.identifier);
   const maximumMarks = round(results.reduce((s, r) => s + r.maximumMarks, 0));

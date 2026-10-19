@@ -102,7 +102,7 @@ export function createApp(options: Options) {
     void (async () => {
       const updated = structuredClone(run);
       updated.results.find(item => item.identifier === req.params.questionId)!.teacherAdjustment = { ...input.data, updatedAt: Date.now() };
-      updated.totals = calculateTotals(updated.results);
+      updated.totals = calculateTotals(updated.results, updated.exam);
       await options.store.checkpoint(updated); updated.manualStudentName = run.manualStudentName; Object.assign(run, updated); res.json(run);
     })().catch(next);
   });

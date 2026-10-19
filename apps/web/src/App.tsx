@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import { SectionScores } from './OptionalSections';
 import { RunSchema, uploadFields, selectableModels, modelLabels, isTerminal, displayedTotals, type EvaluationRun, type UploadField, type QuestionResult } from '@poc/shared';
 
 type RetainedExam = Record<'questionPaper' | 'answerKey', { name: string; size: number; pages: number }>;
@@ -50,7 +51,8 @@ function MarkReview({ result, onSave }: { result: QuestionResult; onSave: (id: s
 export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id: string, marks: number, reason: string) => Promise<void> }) {
   const rawTotals = run.totals;
   const totals = rawTotals ? displayedTotals(rawTotals) : null;
-  const noneFinalised = !!totals && run.results.length > 0 && run.results.every(r => r.marks === null && !r.teacherAdjustment);
+  const contributing = run.results.filter(r => !r.selectionStatus || r.selectionStatus === 'counted');
+  const noneFinalised = !!totals && totals.totalMarks === null && run.results.length > 0 && (contributing.length === 0 || contributing.every(r => r.marks === null && !r.teacherAdjustment));
   const provisional = totals?.totalMarks === null && totals.provisionalTotal != null;
   return <section aria-label="Evaluation results" className="results">
     {totals && <div className="score-banner">
@@ -61,11 +63,13 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
     </div>}
     {totals && rawTotals && !(noneFinalised && !provisional) && <details className="total-calculation"><summary>Total calculation & rounding</summary><p>Original calculated {totals.totalMarks !== null ? 'total' : provisional ? 'provisional total' : 'graded subtotal'}: {number(rawTotals.totalMarks ?? (provisional ? rawTotals.provisionalTotal! : rawTotals.gradedSubtotal))} / {number(rawTotals.maximumMarks)}.</p><p>Only the displayed overall total is rounded: fractions below 0.5 round down, above 0.5 round up, and exactly 0.5 stays unchanged. The total never exceeds the maximum marks. Question marks, rubric awards and saved calculations retain their original precision.</p></details>}
     {run.warnings.length > 0 && <div className="notice"><strong>Notes from processing</strong><ul>{[...new Set(run.warnings)].map(w => <li key={w}>{w}</li>)}</ul></div>}
+    {rawTotals && <SectionScores totals={rawTotals} />}
     {run.results.length > 0 && <div className="section-heading"><h2>Question-by-question</h2><span>{run.results.length} questions</span></div>}
     <div className="question-list">{run.results.map(result => {
       const q = run.exam?.questions.find(q => q.identifier === result.identifier);
       return <article className="question" key={result.identifier}>
-        <div className="question-top"><h3>Question {result.identifier}</h3><div className={`mark ${result.status === 'needs_review' && !result.teacherAdjustment ? 'review' : ''}`}>{result.teacherAdjustment ? `${number(result.teacherAdjustment.marks)} / ${number(result.maximumMarks)} · Reviewed` : result.marks !== null ? `${number(result.marks)} / ${number(result.maximumMarks)}` : result.provisionalMarks != null ? `${number(result.provisionalMarks)} / ${number(result.maximumMarks)} · Provisional` : 'Needs review'}</div></div>
+        <div className="question-top"><h3>Question {result.identifier}</h3><div className={`mark ${result.status === 'needs_review' && !result.teacherAdjustment ? 'review' : ''}`}>{result.selectionStatus === 'not_selected' ? 'Not selected' : result.teacherAdjustment ? `${number(result.teacherAdjustment.marks)} / ${number(result.maximumMarks)} · Reviewed` : result.marks !== null ? `${number(result.marks)} / ${number(result.maximumMarks)}` : result.provisionalMarks != null ? `${number(result.provisionalMarks)} / ${number(result.maximumMarks)} · Provisional` : 'Needs review'}</div></div>
+        {result.selectionStatus && <p className="muted"><strong>{result.selectionStatus === 'counted' ? 'Counted answer' : result.selectionStatus === 'not_selected' ? 'Not selected — no deduction' : 'Selection pending review'}</strong> · {result.selectionNote}</p>}
         {result.teacherAdjustment && <p className="muted">Teacher review: {result.teacherAdjustment.reason}. Original AI award: {result.marks ?? result.provisionalMarks ?? 'not assessable'}{result.marks === null && result.provisionalMarks != null ? ' (provisional)' : ''}.</p>}
         {q && <MathText text={q.text} />}
         <MathText text={result.justification} />
@@ -92,6 +96,7 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
         const readings = run.resolution?.readings.filter(r => r.entryId === answer.entryId) ?? [];
         const sourceLabel = answer.identifier && answer.identifier !== 'null' ? answer.identifier : null;
         return <details key={answer.entryId}><summary>{sourceLabel ? `Source label ${sourceLabel}` : 'Unnumbered answer content'}{mapping?.questionId && mapping.questionId !== sourceLabel ? ` → Question ${mapping.questionId}` : ''} <span>Pages {answer.sourcePages.join(', ')}</span></summary>
+          {answer.withdrawn && <p className="muted">Entire answer marked as cancelled: {answer.withdrawalEvidence}. Original answer text is retained below.</p>}
           {mapping && <p className="muted">{mapping.questionId ? `Mapped to question ${mapping.questionId}${answer.identifier !== mapping.questionId ? ' from an ambiguous label, subpart, or continuation' : ''}` : `Mapping unresolved${mapping.candidateQuestionIds.length ? ': candidate questions ' + mapping.candidateQuestionIds.join(', ') : ''}`} · {mapping.evidence}</p>}
           <MathText text={answer.text} />
           {readings.map((r, i) => <div className="notice" key={i}><strong>Verified reading on pages {r.sourcePages.join(', ')}</strong><p>Original: {r.originalText}</p><p>Re-read: {r.revisedText}</p><p>{r.evidence}</p></div>)}
@@ -216,7 +221,7 @@ export default function App() {
         {health?.retainedExam && <div className="notice">Question paper and answer key are saved locally. Choose replacements below to change them, or <button type="button" className="secondary" disabled={busy} onClick={() => { void clearExam(); }}>Clear saved exam</button>. Only a new answer sheet is required.</div>}
         <form onSubmit={start} ref={formRef}><div className="upload-grid">{uploadFields.map((field, index) => { const retained = field === 'answerSheet' ? undefined : health?.retainedExam?.[field]; return <div className={`upload-card ${hasDocument(field) ? 'selected' : ''}`} key={field}><span className="file-number">0{index + 1}</span><label htmlFor={field}>{labels[field]}</label><p>{hints[field]}</p>{retained && <p className="muted">Saved: {retained.name} · {retained.pages} pages{files[field] ? ' · Replacement selected' : ' · Will reuse'}</p>}<input id={field} type="file" accept="application/pdf,.pdf" disabled={busy} onChange={e => { const f = e.target.files?.[0]; setFiles(old => ({ ...old, [field]: f })); setError(''); }} />{files[field] && <small>{files[field]!.name} · {(files[field]!.size / 1024 / 1024).toFixed(2)} MB · Ready to upload</small>}</div>; })}</div>
           <div className="model-choice"><label htmlFor="evaluation-model">Evaluation model</label><select id="evaluation-model" value={selectedModel} disabled={busy || !health?.models?.length} onChange={e => setSelectedModel(e.target.value)}>{selectableModels.filter(id => !health?.models?.length || health.models.includes(id)).map(id => <option key={id} value={id}>{modelLabels[id]}</option>)}</select><p className="muted">{selectedModel === 'luna-sol' ? 'Luna reads the exam, creates the rubric, transcribes and resolves answers. Sol evaluates against that rubric.' : selectedModel === 'sol-ultrafast' ? 'Sol handles every stage using Ultrafast processing at higher API cost. The grading rules are unchanged.' : 'The selected model is used for every stage.'} Speed and handwriting quality need comparison; under one minute is not guaranteed.</p></div>
-          <div className="upload-footer"><p>PDF only · Up to {health ? health.limits.maxFileBytes / 1024 / 1024 : 10} MB and {health?.limits.maxPages ?? 10} pages each<br /><span>English text and mathematics · All questions must count toward the total</span></p><button type="submit" disabled={busy || !health?.configured || uploadFields.some(f => !hasDocument(f))}>{busy ? 'Checking PDFs…' : 'Evaluate answer sheet'} <span aria-hidden="true">→</span></button></div>
+          <div className="upload-footer"><p>PDF only · Up to {health ? health.limits.maxFileBytes / 1024 / 1024 : 10} MB and {health?.limits.maxPages ?? 10} pages each<br /><span>English text and mathematics · Supports compulsory and answer-any-N sections</span></p><button type="submit" disabled={busy || !health?.configured || uploadFields.some(f => !hasDocument(f))}>{busy ? 'Checking PDFs…' : 'Evaluate answer sheet'} <span aria-hidden="true">→</span></button></div>
         </form>
       </section>}
       {health && !health.configured && <div className="notice">The API is running. Set OPENAI_API_KEY and OPENAI_MODEL in the backend .env, then restart and reload to enable evaluation.</div>}

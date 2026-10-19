@@ -78,7 +78,7 @@ Real scans and API credentials are not included. Anonymised scan-checked transcr
 
 - Exactly three valid, unencrypted PDFs; default maximum 10 MB and 10 pages each. These can be scanned PDFs without a text layer.
 - English short/descriptive answers and mathematical working. Use clear printed question numbers, preferably `1`, `2(a)`, `2(b)`. Every scored leaf question needs marks in the paper and an answer in the key.
-- All listed questions must contribute to the total. Optional selections, OR alternatives and diagram grading are unsupported.
+- Compulsory questions and flat, disjoint equal-mark “answer any N” sections are supported. Optional section maxima use the required quota rather than all available alternatives. Excess answers require review unless the paper explicitly says to count the first answers in script order. Nested OR choices, unequal-mark or overlapping options, unsupported selection policies and diagram grading remain unsupported. See [optional section rules](docs/optional-sections.md).
 - Missing keys, missing marks, conflicts or ambiguous exam structure stop evaluation. The model is instructed to report these; automated extraction is not guaranteed to discover every conflict.
 - Equivalent wording can earn partial credit. Supplied rubrics take precedence; keys without detailed rubrics use explicitly labelled inferred holistic grading.
 - Handwriting transcription sees **only** the answer sheet. A conditional resolution call sees that scan, question texts and raw transcription, with no key, marks or calibration examples. Grading sees the extracted exam, mapped transcription and auditable verified readings.
