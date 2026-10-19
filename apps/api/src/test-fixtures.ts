@@ -1,5 +1,5 @@
 import type { Exam, Transcription, Grading } from '@poc/shared';
-export const examFixture = (): Exam => ({ policyVersion: null, questions: [
+export const examFixture = (): Exam => ({ policyVersion: null, marksEvidence: null, questions: [
   { identifier: '1', text: 'What is 2 + 2?', maximumMarks: 2, expectedAnswer: '4', acceptedAlternatives: [], markingCriteria: [], gradingBasis: 'inferred' },
   { identifier: '2(a)', text: 'Solve x + 1 = 3.', maximumMarks: 3, expectedAnswer: 'x = 2', acceptedAlternatives: [], markingCriteria: ['Correct working and answer'], gradingBasis: 'supplied' },
 ], optionalQuestions: false, issues: [], warnings: [] });

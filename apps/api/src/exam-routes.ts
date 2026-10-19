@@ -42,6 +42,26 @@ export function registerExamRoutes(app: Express, options: Options) {
     const page = Math.max(0, Math.floor(Number(req.query.page) || 0));
     res.json({ submissions: all.slice(page * 50, (page + 1) * 50), total: all.length, page });
   } catch (error) { next(error); } });
+  app.patch('/api/exams/:id', express.json({ limit: '2kb' }), (req, res, next) => {
+    let reserved = false;
+    void (async () => { try {
+      const input = z.object({ name: z.string().trim().min(1).max(120) }).strict().safeParse(req.body);
+      if (!input.success) throw new AppError('INVALID_EXAM', 'Enter an exam title of 1–120 characters.', 400);
+      store.reserve(); reserved = true;
+      res.json({ metadata: await catalog.updateName(req.params.id, input.data.name) });
+    } catch (error) { next(error); } finally { if (reserved) store.release(); } })();
+  });
+  app.delete('/api/exams/:id', express.json({ limit: '2kb' }), (req, res, next) => {
+    let reserved = false;
+    void (async () => { try {
+      const input = z.object({ confirmationId: z.string(), confirmationName: z.string(), acknowledged: z.literal(true) }).strict().safeParse(req.body);
+      if (!input.success) throw new AppError('CONFIRMATION_REQUIRED', 'Confirm the exam ID, current title and deletion warning.', 400);
+      store.reserve(); reserved = true;
+      const entry = catalog.get(req.params.id);
+      if (input.data.confirmationId !== entry.metadata.id || input.data.confirmationName !== entry.metadata.name) throw new AppError('CONFIRMATION_MISMATCH', 'Exam details changed or the title does not match. Refresh and confirm the current exam.', 409);
+      await catalog.archive(req.params.id); res.status(204).end();
+    } catch (error) { next(error); } finally { if (reserved) store.release(); } })();
+  });
   app.patch('/api/exams/:id/model', express.json({ limit: '2kb' }), (req, res, next) => {
     let reserved = false;
     void (async () => { try {

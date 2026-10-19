@@ -20,8 +20,38 @@ export function validateExam(value: unknown): Exam {
     }
     ids.add(q.identifier);
   }
-  if (!Number.isFinite(exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0))) return fail('The maximum mark total is invalid.');
+  const total = exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0);
+  if (!Number.isFinite(total)) return fail('The maximum mark total is invalid.');
+  validateMarksEvidence(exam, total);
   return exam;
+}
+function validateMarksEvidence(exam: Exam, total: number) {
+  const evidence = exam.marksEvidence;
+  if (!evidence) return; // Existing prepared exams remain readable without rewriting them.
+  const same = (a: number, b: number) => Math.abs(a - b) <= 0.000001;
+  if (evidence.printedTotal !== null && (!evidence.totalSource.trim() || !same(total, evidence.printedTotal))) return fail('Question marks do not match the printed exam maximum or its source evidence is missing.');
+  const seen = new Set<string>();
+  const sectionIds = new Set<string>();
+  for (const section of evidence.sections) {
+    if (!section.identifier.trim() || sectionIds.has(section.identifier) || !section.heading.trim() || !section.sourcePages.length || !section.questions.length) return fail('Section marks need unique section IDs, headings, source pages and questions.');
+    sectionIds.add(section.identifier);
+    for (const item of section.questions) {
+      const question = exam.questions.find(q => q.identifier === item.identifier);
+      if (!question || seen.has(item.identifier)) return fail('Section marks reference an unknown or repeated question.');
+      seen.add(item.identifier);
+      if (item.printedMarks !== null && (!item.source.trim() || !same(item.printedMarks, question.maximumMarks))) return fail(`Question ${item.identifier} differs from its explicit printed marks or lacks source evidence.`);
+    }
+    const subtotal = section.questions.reduce((sum, item) => sum + exam.questions.find(q => q.identifier === item.identifier)!.maximumMarks, 0);
+    if (section.headingScope === 'section_total' && (section.headingMarks === null || !same(subtotal, section.headingMarks))) return fail(`Section ${section.identifier} conflicts with its explicitly stated section total.`);
+    if (section.headingScope === 'per_question' && (section.headingMarks === null || section.questions.some(item => !same(exam.questions.find(q => q.identifier === item.identifier)!.maximumMarks, section.headingMarks!)))) return fail(`Section ${section.identifier} conflicts with its explicit per-question heading.`);
+  }
+  for (const section of evidence.sections.filter(s => s.headingScope === 'ambiguous' && s.headingMarks !== null)) {
+    const allExplicit = seen.size === exam.questions.length && evidence.sections.every(s => s.questions.every(q => q.printedMarks !== null && q.source.trim()));
+    if (evidence.printedTotal === null || !allExplicit || section.questions.some(q => !same(q.printedMarks!, section.headingMarks!))) return fail(`Section ${section.identifier} has an ambiguous marks heading that cannot be reconciled from explicit question marks and the printed exam maximum.`);
+    const subtotal = section.questions.reduce((sum, q) => sum + q.printedMarks!, 0);
+    const warning = `Section ${section.identifier}: heading "${section.heading}" interpreted as ${section.headingMarks} marks per question; ${section.questions.length} explicit question allocations total ${subtotal}. All question allocations match the printed exam maximum of ${evidence.printedTotal}.`;
+    if (!exam.warnings.includes(warning)) exam.warnings.push(warning);
+  }
 }
 export function identifyTranscription(value: unknown): Transcription {
   const parsed = TranscriptionSchema.safeParse(value);

@@ -28,6 +28,44 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('persists a title edit without changing the exam ID, rubric, model or documents', async () => {
+    const model = fakeModel(); const app = appFor(model); const created = await create(app); const before = await prepared(app, created.body.id);
+    const edited = await request(app).patch(`/api/exams/${created.body.id}`).send({ name: '  Revised Accounting  ' });
+    expect(edited.status).toBe(200);
+    expect(edited.body.metadata).toEqual({ ...before.metadata, name: 'Revised Accounting' });
+    expect((await request(app).get(`/api/exams/${created.body.id}/student`)).body.metadata.name).toBe('Revised Accounting');
+    expect(catalog.get(created.body.id).specification).toEqual(before.specification);
+    const reopened = new ExamCatalog(path.join(root, 'exams')); await reopened.initialize();
+    expect(reopened.get(created.body.id).metadata.name).toBe('Revised Accounting');
+    expect(await reopened.read(created.body.id, 'questionPaper')).toEqual(pdf);
+    expect(model.extract).toHaveBeenCalledTimes(1);
+    for (const body of [{ name: '' }, { name: 'x'.repeat(121) }, { name: 'Valid', model: 'sol-ultrafast' }]) expect((await request(app).patch(`/api/exams/${created.body.id}`).send(body)).status).toBe(400);
+  });
+  it('requires exact current confirmation and archives only the selected exam while retaining submissions', async () => {
+    const app = appFor(); const created = await create(app); const before = await prepared(app, created.body.id);
+    const other = await create(app, 'Other exam'); await prepared(app, other.body.id);
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(app, submitted.body.id);
+    const url = `/api/exams/${created.body.id}`;
+    expect((await request(app).delete(url)).status).toBe(400);
+    expect((await request(app).delete(url).send({ confirmationId: other.body.id, confirmationName: before.metadata.name, acknowledged: true })).status).toBe(409);
+    expect((await request(app).delete(url).send({ confirmationId: created.body.id, confirmationName: 'Wrong title', acknowledged: true })).status).toBe(409);
+    store.reserve();
+    expect((await request(app).delete(url).send({ confirmationId: created.body.id, confirmationName: before.metadata.name, acknowledged: true })).status).toBe(409);
+    expect((await request(app).patch(url).send({ name: 'Busy edit' })).status).toBe(409);
+    store.release();
+    expect((await request(app).delete(url).send({ confirmationId: created.body.id, confirmationName: before.metadata.name, acknowledged: true })).status).toBe(204);
+    expect((await request(app).get(`${url}/student`)).status).toBe(404);
+    expect((await request(app).post(`${url}/evaluations`).attach('answerSheet', pdf, 'new.pdf')).status).toBe(404);
+    expect((await request(app).get('/api/exams')).body.exams.map((item: { id: string }) => item.id)).toEqual([other.body.id]);
+    expect(await readFile(path.join(root, 'exams', '.deleted', created.body.id, 'questionPaper.pdf'))).toEqual(pdf);
+    expect(await store.read(submitted.body.id, 'answerSheet')).toEqual(pdf);
+    const reopened = new ExamCatalog(path.join(root, 'exams')); await reopened.initialize();
+    expect(() => reopened.get(created.body.id)).toThrow(/not found/);
+    expect(reopened.get(other.body.id).metadata.name).toBe('Other exam');
+    await store.dispose(); store = new RunStore(path.join(root, 'restarted-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    expect(store.get(submitted.body.id)?.stage).toBe('completed');
+    expect(await store.read(submitted.body.id, 'answerSheet')).toEqual(pdf);
+  });
   it('keeps reports and PDFs through cleanup, start-over and restart without changing existing exams', async () => {
     const model = fakeModel(); const app = appFor(model); const created = await create(app); const before = await prepared(app, created.body.id);
     const named = transcriptionFixture(); named.studentIdentity = { name: 'Anu Thomas', status: 'readable', sourcePages: [1], note: 'Labelled Name field on page 1.' };
@@ -57,6 +95,8 @@ describe('Faculty and student exam API', () => {
     const app = createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: password, requireFacultyAuth: true });
     expect((await request(app).get('/faculty')).status).toBe(401);
     expect((await request(app).get('/api/exams')).status).toBe(401);
+    expect((await request(app).patch(`/api/exams/${created.body.id}`).send({ name: 'Unauthorised' })).status).toBe(401);
+    expect((await request(app).delete(`/api/exams/${created.body.id}`).send({ confirmationId: created.body.id, confirmationName: 'Accounting', acknowledged: true })).status).toBe(401);
     expect((await request(app).get('/API/EXAMS')).status).toBe(401);
     expect((await request(app).get('/Faculty')).status).toBe(401);
     expect((await request(app).get(`/api/exams/${created.body.id}/student`)).status).toBe(200);

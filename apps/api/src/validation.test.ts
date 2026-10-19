@@ -3,6 +3,52 @@ import { validateExam, validateTranscription, validateGrading, directResolution,
 import { examFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
 
 describe('Exam and transcription integrity', () => {
+  const sectionedExam = () => {
+    const exam = examFixture();
+    exam.questions = [10, 10, 15, 15].map((marks, index) => ({ ...exam.questions[0], identifier: `${index < 2 ? 'A' : 'B'}-${index % 2 + 1}`, maximumMarks: marks }));
+    exam.marksEvidence = { printedTotal: 50, totalSource: 'Maximum Marks 50', sections: ['A', 'B'].map((identifier, index) => ({ identifier, heading: `Section ${identifier} - ${index ? 15 : 10} Marks`, sourcePages: [1], headingMarks: index ? 15 : 10, headingScope: 'ambiguous' as const, questions: exam.questions.slice(index * 2, index * 2 + 2).map(q => ({ identifier: q.identifier, printedMarks: q.maximumMarks, source: `${q.identifier} [${q.maximumMarks} Marks]` })) })) };
+    return exam;
+  };
+  it('reconciles the statistics paper as 20 + 30 = 50 and retains auditable warnings', () => {
+    const exam = validateExam(sectionedExam());
+    expect(exam.questions.map(q => q.maximumMarks)).toEqual([10, 10, 15, 15]);
+    expect(exam.warnings).toHaveLength(2);
+    expect(exam.warnings[0]).toMatch(/per question.*total 20/);
+    expect(validateExam(exam).warnings).toHaveLength(2);
+    const t = transcriptionFixture(); t.answers[0].identifier = 'A-1'; t.answers[1].identifier = 'B-1';
+    expect(directResolution(t, exam).mappings.map(m => m.questionId)).toEqual(['A-1', 'B-1']);
+    t.answers[0].identifier = '1';
+    expect(directResolution(t, exam).mappings[0].questionId).toBeNull();
+  });
+  it.each(['wrong_total', 'missing_total', 'missing_question_marks', 'explicit_section_total', 'unequal_marks', 'unknown_question', 'duplicate_question', 'unrelated_issue', 'optional'])('does not reconcile section ambiguity with %s', kind => {
+    const exam = sectionedExam(); const evidence = exam.marksEvidence!;
+    if (kind === 'wrong_total') evidence.printedTotal = 25;
+    if (kind === 'missing_total') evidence.printedTotal = null;
+    if (kind === 'missing_question_marks') evidence.sections[0].questions[0].printedMarks = null;
+    if (kind === 'explicit_section_total') evidence.sections[0].headingScope = 'section_total';
+    if (kind === 'unequal_marks') evidence.sections[0].headingMarks = 5;
+    if (kind === 'unknown_question') evidence.sections[0].questions[0].identifier = 'C-9';
+    if (kind === 'duplicate_question') evidence.sections[1].questions[0].identifier = 'A-1';
+    if (kind === 'unrelated_issue') exam.issues = ['Missing key answer'];
+    if (kind === 'optional') exam.optionalQuestions = true;
+    expect(() => validateExam(exam)).toThrow();
+  });
+  it('keeps unsectioned accounting marks and legacy prepared exams unchanged', () => {
+    const exam = examFixture();
+    exam.questions = [6, 2, 2, 5, 10].map((maximumMarks, i) => ({ ...exam.questions[0], identifier: String(i + 1), maximumMarks }));
+    delete exam.marksEvidence;
+    expect(validateExam(exam)).toEqual(exam);
+    exam.marksEvidence = { printedTotal: 25, totalSource: 'Total 25 marks', sections: [] };
+    expect(validateExam(exam).warnings).toEqual([]);
+    expect(validateExam(exam).questions.reduce((sum, q) => sum + q.maximumMarks, 0)).toBe(25);
+  });
+  it('accepts explicit section totals and each-question labels without treating them as ambiguous', () => {
+    const exam = sectionedExam();
+    const sections = exam.marksEvidence!.sections;
+    sections[0].heading = 'Section A total 20 marks'; sections[0].headingMarks = 20; sections[0].headingScope = 'section_total';
+    sections[1].heading = 'Section B 15 marks each'; sections[1].headingScope = 'per_question';
+    expect(validateExam(exam).warnings).toEqual([]);
+  });
   it('preserves readable names with page evidence and does not turn name uncertainty into grading blockers', () => {
     const t = transcriptionFixture(); t.studentIdentity = { name: '  Anu Thomas  ', status: 'readable', sourcePages: [1], note: 'Name field.' };
     expect(validateTranscription(t, 1).studentIdentity?.name).toBe('Anu Thomas');

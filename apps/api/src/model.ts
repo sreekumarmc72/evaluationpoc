@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
-import { ExamSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, StudentIdentitySchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
+import { ExamSchema, MarksEvidenceSchema, QuestionSchema, RubricCriterionSchema, CriterionAwardSchema, TranscriptionSchema, StudentIdentitySchema, ResolutionSchema, ResultSchema, GradingSchema, type Exam, type Transcription, type Resolution, type Usage } from '@poc/shared';
 import { createHash } from 'node:crypto';
 import { validateExam } from './validation.js';
 import { extractionPrompt, transcriptionPrompt, gradingPrompt, resolutionPrompt } from './prompts.js';
@@ -62,7 +62,7 @@ export class OpenAIModel implements EvaluationModel {
     const saved = await this.options.examStorage?.get(fingerprint);
     if (saved) return { value: structuredClone(validateExam(saved)), examReused: true, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
     for (const [id, entry] of this.examCache) if (entry.expires <= Date.now()) this.examCache.delete(id);
-    const schema = ExamSchema.extend({ questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
+    const schema = ExamSchema.extend({ marksEvidence: MarksEvidenceSchema.nullable(), questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
     const response = await this.call(schema, 'exam_with_rubric', extractionPrompt, [
       { type: 'input_text', text: 'Question paper:' }, pdf('question-paper.pdf', questionPaper),
       { type: 'input_text', text: 'Answer key:' }, pdf('answer-key.pdf', answerKey),

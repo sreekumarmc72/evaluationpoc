@@ -24,10 +24,21 @@ export const QuestionSchema = z.object({
   markingCriteria: z.array(z.string()), gradingBasis: z.enum(['supplied', 'inferred']),
   rubric: z.array(RubricCriterionSchema).optional(),
 });
+export const MarksEvidenceSchema = z.object({
+  printedTotal: z.number().positive().nullable(),
+  totalSource: z.string(),
+  sections: z.array(z.object({
+    identifier: z.string(), heading: z.string(), sourcePages: z.array(z.number().int().positive()),
+    headingMarks: z.number().positive().nullable(),
+    headingScope: z.enum(['ambiguous', 'per_question', 'section_total', 'unspecified']),
+    questions: z.array(z.object({ identifier: z.string(), printedMarks: z.number().positive().nullable(), source: z.string() })),
+  })),
+});
 export const ExamSchema = z.object({
   policyVersion: z.string().nullable(),
   questions: z.array(QuestionSchema), optionalQuestions: z.boolean(),
   issues: z.array(z.string()), warnings: z.array(z.string()),
+  marksEvidence: MarksEvidenceSchema.nullable().optional(),
 });
 export const UncertaintySchema = z.object({
   id: z.string(), description: z.string(), sourcePages: z.array(z.number().int()),

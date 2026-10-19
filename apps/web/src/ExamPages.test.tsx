@@ -60,6 +60,57 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('edits a title and retains the same student link', async () => {
+    let title = exam().name;
+    const mock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') { title = JSON.parse(init.body as string).name; return response({ metadata: { ...exam(), name: title } }); }
+      return response(url === '/api/storage' ? { storage: null } : { exams: [{ ...exam(), name: title }] });
+    });
+    vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Edit exam title' });
+    fireEvent.change(within(dialog).getByLabelText('Exam title'), { target: { value: 'Business exam' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save title' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByText('Business exam')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open student page →' })).toHaveAttribute('href', `/student/${id}`);
+    expect(mock.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(`/api/exams/${id}`);
+  });
+  it('requires two deletion stages, the exact title and an acknowledgement', async () => {
+    let deleted = false;
+    const mock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') { deleted = true; return response(null, 204); }
+      return response(url === '/api/storage' ? { storage: null } : { exams: deleted ? [] : [{ ...exam(), submissionCount: 3 }] });
+    });
+    vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Delete this exam?' });
+    expect(within(dialog).getByText(/3 saved submissions/)).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(mock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    dialog = screen.getByRole('dialog');
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to confirmation' }));
+    const remove = within(dialog).getByRole('button', { name: 'Delete exam' });
+    expect(remove).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText('Type the exact exam title to confirm'), { target: { value: exam().name } });
+    expect(remove).toBeDisabled();
+    fireEvent.click(within(dialog).getByRole('checkbox'));
+    expect(remove).toBeEnabled(); fireEvent.click(remove);
+    await screen.findByText('No exams yet. Create your first exam using the form.');
+    const call = mock.mock.calls.find(([, init]) => init?.method === 'DELETE')!;
+    expect(JSON.parse(call[1]!.body as string)).toEqual({ confirmationId: id, confirmationName: exam().name, acknowledged: true });
+  });
+  it('keeps the deletion confirmation open when the server rejects deletion', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => init?.method === 'DELETE' ? response({ error: { message: 'An evaluation is already running.' } }, 409) : response(url === '/api/storage' ? { storage: null } : { exams: [exam()] })));
+    render(<FacultyPage />); await screen.findByText('Ready');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    const dialog = screen.getByRole('dialog'); fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to confirmation' }));
+    fireEvent.change(within(dialog).getByLabelText('Type the exact exam title to confirm'), { target: { value: exam().name } });
+    fireEvent.click(within(dialog).getByRole('checkbox')); fireEvent.click(within(dialog).getByRole('button', { name: 'Delete exam' }));
+    await within(dialog).findByText('An evaluation is already running.');
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
   it('retains the Paperwise faculty branding', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : { exams: [] })));
     render(<FacultyPage />);

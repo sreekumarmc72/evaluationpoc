@@ -61,6 +61,25 @@ export class ExamCatalog {
     await this.write(id, 'metadata.json', entry.metadata); this.entries.set(id, entry);
   }
   read(id: string, field: Field) { return readFile(path.join(this.directory(id), `${field}.pdf`)); }
+  async updateName(id: string, name: string) {
+    const entry = this.get(id);
+    if (entry.metadata.status === 'preparing') throw new AppError('EXAM_ACTIVE', 'Wait for exam preparation to finish before editing its title.', 409);
+    const title = name.trim();
+    if (!title || title.length > 120) throw new AppError('INVALID_EXAM', 'Enter an exam title of 1–120 characters.', 400);
+    entry.metadata.name = title;
+    await this.write(id, 'metadata.json', entry.metadata); this.entries.set(id, entry);
+    return structuredClone(entry.metadata);
+  }
+  async archive(id: string) {
+    const entry = this.get(id);
+    if (entry.metadata.status === 'preparing') throw new AppError('EXAM_ACTIVE', 'Wait for exam preparation to finish before deleting this exam.', 409);
+    // Same-filesystem rename is atomic. Retain source files and all submission
+    // history for recovery; initialization never loads this private directory.
+    const archiveRoot = path.join(path.resolve(this.root), '.deleted');
+    await mkdir(archiveRoot, { recursive: true });
+    await rename(this.directory(id), path.join(archiveRoot, id));
+    this.entries.delete(id);
+  }
   async updateModel(id: string, model: PreparedExam['model']) {
     const entry = this.get(id);
     if (entry.metadata.status !== 'ready') throw new AppError('EXAM_NOT_READY', 'Only ready exams can change their evaluation model.', 409);
