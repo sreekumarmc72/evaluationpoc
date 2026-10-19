@@ -60,6 +60,13 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('retains the Paperwise faculty branding', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : { exams: [] })));
+    render(<FacultyPage />);
+    expect(screen.getByRole('link', { name: /paperwise/ })).toHaveAttribute('href', '/');
+    expect(screen.queryByRole('img', { name: 'Nergy Vidya' })).not.toBeInTheDocument();
+    await screen.findByText('No exams yet. Create your first exam using the form.');
+  });
   it('opens saved submissions and displays the report, rubric and PDF', async () => {
     const summary = { id, createdAt: 1, stage: 'completed', model: 'gpt-6.1-sol', totals: result().totals, studentName: 'Anu Thomas', nameStatus: 'readable', interrupted: false, error: null };
     const mock = vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : url === '/api/exams' ? { exams: [{ ...exam(), submissionCount: 1 }] } : url.includes('/submissions') ? { submissions: [summary], total: 1 } : { ...result(), id }));
@@ -166,6 +173,9 @@ describe('Student page', () => {
     expect(screen.getByRole('heading', { name: 'Accounting test' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /paperwise/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Nergy Vidya' })).toHaveAttribute('src', '/branding/nergy-vidya.svg');
+    expect(screen.getByText('Answer Sheet Evaluation')).toBeInTheDocument();
+    expect(screen.getByTitle(id)).toHaveTextContent('Exam ID 11111111');
     expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
     expect(screen.queryByText('Correct journal')).not.toBeInTheDocument();
     fireEvent.change(screen.getByLabelText('Handwritten answer sheet'), { target: { files: [new File(['pdf'], 'sheet.pdf', { type: 'application/pdf' })] } });
