@@ -1,0 +1,59 @@
+/* Faculty-only presentation; the original POC and student page are unchanged. */
+.app-shell.faculty-shell { max-width: none; padding: 0 max(24px, calc((100vw - 1480px) / 2)); background: #f7f7f8; color: #25262c; min-height: 100dvh; }
+.faculty-shell > header { height: 84px; border-color: #dddde5; background: #fff; margin-inline: min(-24px, calc((1480px - 100vw) / 2)); padding-inline: max(24px, calc((100vw - 1480px) / 2)); }
+.faculty-brand { display: flex; align-items: center; gap: 24px; text-decoration: none; }
+.faculty-brand img { width: 100px; height: 56px; object-fit: contain; }
+.faculty-brand span { color: #53576c; border: 1px solid #a9adbd; border-radius: 10px; padding: 8px 16px; font-size: 13px; font-weight: 600; }
+.faculty-shell a, .faculty-shell summary { color: #2b5da6; }
+.faculty-shell .eyebrow, .faculty-shell .muted, .faculty-shell .faculty-heading p, .faculty-shell .exam-row-meta, .faculty-shell .storage-usage, .faculty-shell footer, .faculty-shell .exam-empty, .faculty-shell .faculty-list-note { color: #73758a; }
+.faculty-shell button { background: #152d53; border-radius: 8px; }
+.faculty-shell button:hover { background: #233f68; }
+.faculty-shell button.secondary { color: #152d53; background: #f0f2f7; border: 1px solid #dddde5; }
+.faculty-shell button.secondary:hover { background: #e5e9f2; }
+.faculty-shell .create-exam-button { border-radius: 24px; }
+.faculty-shell :is(.faculty-create, .faculty-exams, .question, .scan, .exam-model-settings, .rubric-modal, .rubric-modal-heading, .rubric th, .rubric td, details, footer) { border-color: #dddde5; }
+.faculty-shell :is(.exam-form > input, .model-choice select, .exam-model-settings select, .faculty-search input, .history-toolbar input, .mark-review input) { border-color: #cdd0dc; color: #25262c; background: #fff; }
+.faculty-shell .faculty-search input { background: #f7f7fa; }
+.faculty-shell .upload-card { background: #f7f7fa; border-color: #b9bdcc; }
+.faculty-shell .upload-card.selected { background: #f0f3f9; }
+.faculty-shell .upload-card :is(p, input, small) { color: #73758a; }
+.faculty-shell input::file-selector-button { color: #152d53; border-color: #c6c9d6; }
+.faculty-shell :is(button, a, input, select, summary):focus-visible, .faculty-action-menu :is(button, a):focus-visible { outline: 2px solid #2b5da6; outline-offset: 3px; }
+.faculty-shell .faculty-exam-table :is(th, td) { border-color: #e4e5ec; padding-block: 14px; }
+.faculty-shell .faculty-exam-table th { background: #f5f6f9; color: #73758a; }
+.faculty-shell .faculty-exam-table th:first-child, .faculty-shell .faculty-exam-table td:first-child { width: 40%; }
+.faculty-shell .faculty-exam-table tbody tr:hover { background: #fafbfe; }
+.faculty-shell .exam-row-actions { flex-wrap: wrap; gap: 8px; min-width: 185px; }
+.faculty-shell .exam-row-actions .history-action { flex-basis: auto; font-size: 11px; padding: 7px 10px; }
+.faculty-shell .exam-more-trigger { font-size: 12px; padding: 6px 9px; gap: 5px; }
+.faculty-shell .retry-exam { flex-basis: 100%; justify-content: center; }
+.faculty-shell .mark, .faculty-shell .exam-count { color: #152d53; background: #edf1f8; }
+.faculty-shell .mark.review { color: #846322; background: #fbf3df; }
+.faculty-shell .icon-action { color: #152d53; border-color: #dddde5; background: #fff; }
+.faculty-shell .icon-action:hover { background: #edf1f8; border-color: #b8c5dd; }
+.faculty-shell .copy-feedback { color: #2b5da6; }
+.faculty-shell .storage-low { color: #923c30; }
+.faculty-shell .rubric-modal { background: #f7f7f8; color: #25262c; box-shadow: 0 20px 80px #152d5333; }
+.faculty-shell .rubric-modal::backdrop { background: #15203999; }
+.faculty-shell .score-banner { background: #152d53; }
+.faculty-shell .score-banner :is(.eyebrow, p, .score-note), .faculty-shell .score span { color: #d5ddec; }
+.faculty-shell .score-note { border-color: #657796; }
+.faculty-shell .points li, .faculty-shell .metadata, .faculty-shell summary span, .faculty-shell .section-heading > span { color: #73758a; }
+.faculty-shell .transcription details { border-color: #dddde5; }
+.faculty-shell .scan iframe { background: #eceef3; }
+.faculty-shell .danger-link { color: #a33535; background: #fff1f0; }
+.faculty-shell button.danger { background: #a33535; }
+.faculty-shell button.danger:hover { background: #822929; }
+.faculty-action-menu { position: fixed; z-index: 100; width: min(236px, calc(100vw - 24px)); padding: 6px; overflow-y: auto; background: #fff; color: #25262c; border: 1px solid #dddde5; border-radius: 12px; box-shadow: 0 10px 35px #152d5326; font: 13px/1.5 'DM Sans', system-ui, sans-serif; }
+.faculty-action-menu :is(button, a) { display: flex; width: 100%; padding: 10px 12px; text-align: left; border: 0; border-radius: 6px; color: #25262c; background: white; text-decoration: none; font: inherit; font-weight: 500; cursor: pointer; }
+.faculty-action-menu :is(button, a):hover, .faculty-action-menu :is(button, a):focus { background: #edf1f8; }
+.faculty-action-menu .menu-delete { color: #a33535; }
+.faculty-action-menu [role=separator] { height: 1px; background: #e4e5ec; margin: 5px 4px; }
+@media (max-width: 750px) {
+  .app-shell.faculty-shell { padding-inline: 18px; }
+  .faculty-shell > header { height: auto; min-height: 80px; margin-inline: -18px; padding: 12px 18px; flex-wrap: wrap; gap: 12px; }
+  .faculty-brand { gap: 12px; }
+  .faculty-brand img { width: 80px; height: 45px; }
+  .faculty-brand span { font-size: 11px; padding: 6px 10px; }
+  .faculty-shell nav { margin-left: auto; }
+}

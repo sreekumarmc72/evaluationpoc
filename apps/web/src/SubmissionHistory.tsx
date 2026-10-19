@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { RunSchema, SubmissionSummarySchema, isTerminal, modelLabels, type PreparedExam, type EvaluationRun, type SubmissionSummary } from '@poc/shared';
+import { RunSchema, SubmissionSummarySchema, isTerminal, modelLabels, displayedTotals, type PreparedExam, type EvaluationRun, type SubmissionSummary } from '@poc/shared';
 import { Results } from './App';
 
 async function read<T>(url: string): Promise<T> {
@@ -8,10 +8,10 @@ async function read<T>(url: string): Promise<T> {
   finally { clearTimeout(timeout); }
 }
 export function submissionScore(item: SubmissionSummary) {
-  if (item.stage !== 'completed' || !item.totals) return '—'; const t = item.totals;
+  if (item.stage !== 'completed' || !item.totals) return '—'; const t = displayedTotals(item.totals);
   if (t.totalMarks !== null) return `${t.totalMarks} / ${t.maximumMarks}`;
   if (t.provisionalTotal != null) return `${t.provisionalTotal} / ${t.maximumMarks} · Provisional`;
-  return t.gradedSubtotal > 0 ? `${t.gradedSubtotal} / ${t.maximumMarks} · Subtotal` : 'No marks finalised';
+  return item.totals.gradedSubtotal > 0 ? `${t.gradedSubtotal} / ${t.maximumMarks} · Subtotal` : 'No marks finalised';
 }
 export function SubmissionHistory({ exam, onClose }: { exam: PreparedExam; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);

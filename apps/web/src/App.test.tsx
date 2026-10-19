@@ -13,6 +13,26 @@ const run = (pending = false): EvaluationRun => ({
 });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 describe('Results UI', () => {
+  it.each([[4.75, '5 / 5', '100%'], [4.25, '4 / 5', '80%'], [4.5, '4.5 / 5', '90%']])('rounds only the overall total for %s and retains exact question marks', (raw, displayed, percent) => {
+    const value = run(); value.results[0].marks = raw;
+    Object.assign(value.totals!, { gradedSubtotal: raw, totalMarks: raw, percentage: raw / 5 * 100 });
+    const before = structuredClone(value);
+    const { container } = render(<Results run={value} />);
+    expect(container.querySelector('.score')).toHaveTextContent(displayed);
+    expect(screen.getByText(new RegExp(`${percent} · All questions evaluated`))).toBeInTheDocument();
+    expect(container.querySelector('.mark')).toHaveTextContent(`${raw} / 5`);
+    expect(screen.getByText(`Original calculated total: ${raw} / 5.`)).toBeInTheDocument();
+    expect(value).toEqual(before);
+  });
+  it('rounds provisional totals while keeping review labels and question awards exact', () => {
+    const value = run(true); value.results[0].provisionalMarks = 4.75; value.totals!.provisionalTotal = 4.75;
+    const { container } = render(<Results run={value} />);
+    expect(container.querySelector('.score')).toHaveTextContent('5 / 5');
+    expect(screen.getByText('4.75 / 5 · Provisional')).toBeInTheDocument();
+    expect(screen.getByText('PROVISIONAL MARKS · REVIEW RECOMMENDED')).toBeInTheDocument();
+    expect(screen.getByText('Original calculated provisional total: 4.75 / 5.')).toBeInTheDocument();
+    expect(screen.queryByText(/100%/)).not.toBeInTheDocument();
+  });
   it('shows inferred rubric allocations, key alignment and the awarded evidence', () => {
     const value = run(); value.exam = { policyVersion: null, optionalQuestions: false, issues: [], warnings: [], questions: [{ identifier: '1', text: 'Question', maximumMarks: 5, expectedAnswer: 'Expected answer', markingCriteria: [], acceptedAlternatives: [], gradingBasis: 'inferred', rubric: [{ id: 'method', description: 'Correct method', maximumMarks: 5, expectedEvidence: 'Show working', keyAlignment: 'Method in the key', allocationBasis: 'inferred' }] }] };
     value.results[0].criterionAwards = [{ criterionId: 'method', marks: 4, evidence: 'Working on page one', reason: 'One step missing', sourceEntryIds: ['entry-1'] }];

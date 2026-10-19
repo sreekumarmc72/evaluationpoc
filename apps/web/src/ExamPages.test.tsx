@@ -17,6 +17,10 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
 });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); vi.useRealTimers(); });
+function chooseExamAction(label: string, examName = 'Accounting test') {
+  fireEvent.click(screen.getAllByRole('button', { name: `More actions for ${examName}` })[0]);
+  fireEvent.click(screen.getByRole('menuitem', { name: label }));
+}
 
 describe('Student progress', () => {
   it('updates elapsed seconds while processing and freezes at the completion time', () => {
@@ -60,6 +64,48 @@ describe('Student progress', () => {
   });
 });
 describe('Faculty page', () => {
+  it('shows compact actions and supports keyboard navigation, Escape and outside dismissal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : { exams: [exam()] })));
+    render(<FacultyPage />);
+    const trigger = await screen.findByRole('button', { name: 'More actions for Accounting test' });
+    expect(screen.queryByRole('menuitem')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Submissions (0)' })).toBeInTheDocument();
+    fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+    const menu = screen.getByRole('menu');
+    expect(menu.parentElement).toBe(document.body);
+    expect(screen.getByRole('menuitem', { name: 'Open student page →' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'ArrowDown' });
+    expect(screen.getByRole('menuitem', { name: 'Copy student link' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'End' });
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveFocus();
+    fireEvent.keyDown(menu, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument(); expect(trigger).toHaveFocus();
+    fireEvent.click(trigger); fireEvent.pointerDown(document.body);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    fireEvent.click(trigger); fireEvent(window, new Event('resize'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+  it('keeps source filenames available in a popup for failed exams', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : { exams: [exam('failed')] })));
+    render(<FacultyPage />); await screen.findByText('Failed');
+    chooseExamAction('Source files');
+    const dialog = screen.getByRole('dialog', { name: 'Source files — Accounting test' });
+    expect(within(dialog).getByText('paper.pdf')).toBeInTheDocument();
+    expect(within(dialog).getByText('key.pdf')).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close source files' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry preparation' })).toBeInTheDocument();
+  });
+  it('rounds existing history totals and preserves provisional, subtotal and unavailable labels', () => {
+    const item = { id, createdAt: 1, stage: 'completed' as const, model: 'gpt-6.1-sol', totals: { ...result().totals!, maximumMarks: 25, gradedSubtotal: 24.75, totalMarks: 24.75 }, studentName: null, nameStatus: 'absent' as const, interrupted: false, error: null };
+    expect(submissionScore(item)).toBe('25 / 25');
+    expect(submissionScore({ ...item, totals: { ...item.totals, totalMarks: 21.25 } })).toBe('21 / 25');
+    expect(submissionScore({ ...item, totals: { ...item.totals, totalMarks: 21.5 } })).toBe('21.5 / 25');
+    expect(submissionScore({ ...item, totals: { ...item.totals, totalMarks: null, provisionalTotal: 21.75 } })).toBe('22 / 25 · Provisional');
+    expect(submissionScore({ ...item, totals: { ...item.totals, totalMarks: null, gradedSubtotal: 0.25 } })).toBe('0 / 25 · Subtotal');
+    expect(submissionScore({ ...item, totals: null })).toBe('—');
+    expect(item.totals.totalMarks).toBe(24.75);
+  });
   it('edits a title and retains the same student link', async () => {
     let title = exam().name;
     const mock = vi.fn(async (url: string, init?: RequestInit) => {
@@ -67,13 +113,14 @@ describe('Faculty page', () => {
       return response(url === '/api/storage' ? { storage: null } : { exams: [{ ...exam(), name: title }] });
     });
     vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
-    fireEvent.click(screen.getByRole('button', { name: 'Edit title' }));
+    chooseExamAction('Edit title');
     const dialog = await screen.findByRole('dialog', { name: 'Edit exam title' });
     fireEvent.change(within(dialog).getByLabelText('Exam title'), { target: { value: 'Business exam' } });
     fireEvent.click(within(dialog).getByRole('button', { name: 'Save title' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(screen.getByText('Business exam')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open student page →' })).toHaveAttribute('href', `/student/${id}`);
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for Business exam' }));
+    expect(screen.getByRole('menuitem', { name: 'Open student page →' })).toHaveAttribute('href', `/student/${id}`);
     expect(mock.mock.calls.find(([, init]) => init?.method === 'PATCH')?.[0]).toBe(`/api/exams/${id}`);
   });
   it('requires two deletion stages, the exact title and an acknowledgement', async () => {
@@ -83,12 +130,12 @@ describe('Faculty page', () => {
       return response(url === '/api/storage' ? { storage: null } : { exams: deleted ? [] : [{ ...exam(), submissionCount: 3 }] });
     });
     vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    chooseExamAction('Delete');
     let dialog = await screen.findByRole('dialog', { name: 'Delete this exam?' });
     expect(within(dialog).getByText(/3 saved submissions/)).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(mock.mock.calls.some(([, init]) => init?.method === 'DELETE')).toBe(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    chooseExamAction('Delete');
     dialog = screen.getByRole('dialog');
     fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to confirmation' }));
     const remove = within(dialog).getByRole('button', { name: 'Delete exam' });
@@ -104,18 +151,19 @@ describe('Faculty page', () => {
   it('keeps the deletion confirmation open when the server rejects deletion', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => init?.method === 'DELETE' ? response({ error: { message: 'An evaluation is already running.' } }, 409) : response(url === '/api/storage' ? { storage: null } : { exams: [exam()] })));
     render(<FacultyPage />); await screen.findByText('Ready');
-    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    chooseExamAction('Delete');
     const dialog = screen.getByRole('dialog'); fireEvent.click(within(dialog).getByRole('button', { name: 'Continue to confirmation' }));
     fireEvent.change(within(dialog).getByLabelText('Type the exact exam title to confirm'), { target: { value: exam().name } });
     fireEvent.click(within(dialog).getByRole('checkbox')); fireEvent.click(within(dialog).getByRole('button', { name: 'Delete exam' }));
     await within(dialog).findByText('An evaluation is already running.');
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
-  it('retains the Paperwise faculty branding', async () => {
+  it('uses Nergy Vidya faculty branding and retains existing navigation', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/storage' ? { storage: null } : { exams: [] })));
     render(<FacultyPage />);
-    expect(screen.getByRole('link', { name: /paperwise/ })).toHaveAttribute('href', '/');
-    expect(screen.queryByRole('img', { name: 'Nergy Vidya' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Nergy Vidya home' })).toHaveAttribute('href', '/');
+    expect(screen.getByRole('img', { name: 'Nergy Vidya' })).toHaveAttribute('src', '/branding/nergy-vidya.svg');
+    expect(screen.getByRole('link', { name: 'Original POC' })).toHaveAttribute('href', '/');
     await screen.findByText('No exams yet. Create your first exam using the form.');
   });
   it('opens saved submissions and displays the report, rubric and PDF', async () => {
@@ -142,7 +190,7 @@ describe('Faculty page', () => {
     const updated = { ...exam(), model: 'sol-ultrafast' as const, preparationModel: 'gpt-6.1-sol' as const };
     const mock = vi.fn(async (url: string, init?: RequestInit) => response(init?.method === 'PATCH' ? { metadata: updated } : url === '/api/exams' ? { exams: [exam()] } : { metadata: exam(), specification }));
     vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
-    fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' }));
+    chooseExamAction('View questions & rubric');
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByRole('heading', { name: 'Evaluation model' })).toBeInTheDocument();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Edit model' }));
@@ -169,7 +217,7 @@ describe('Faculty page', () => {
   it('closes rubric details on cancel and restores page scrolling', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => response(url === '/api/exams' ? { exams: [exam()] } : { metadata: exam(), specification })));
     render(<FacultyPage />); await screen.findByText('Ready');
-    fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' }));
+    chooseExamAction('View questions & rubric');
     const dialog = await screen.findByRole('dialog');
     expect(document.body.style.overflow).toBe('hidden');
     fireEvent(dialog, new Event('cancel', { bubbles: true, cancelable: true }));
@@ -181,12 +229,13 @@ describe('Faculty page', () => {
     vi.stubGlobal('navigator', { clipboard: { writeText } });
     vi.stubGlobal('fetch', vi.fn(async () => response({ exams: [exam(), { ...exam('preparing'), id: '22222222-2222-4222-8222-222222222222' }] })));
     render(<FacultyPage />);
-    const link = await screen.findByRole('link', { name: 'Open student page →' });
+    fireEvent.click((await screen.findAllByRole('button', { name: 'More actions for Accounting test' }))[0]);
+    const link = screen.getByRole('menuitem', { name: 'Open student page →' });
     expect(link).toHaveAttribute('href', `/student/${id}`);
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(screen.getAllByRole('button', { name: 'Copy student link' })).toHaveLength(1);
-    fireEvent.click(screen.getByRole('button', { name: 'Copy student link' }));
+    expect(screen.getAllByRole('menuitem', { name: 'Copy student link' })).toHaveLength(1);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Copy student link' }));
     await screen.findByText('Student link copied');
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/student/${id}`);
   });
@@ -206,7 +255,7 @@ describe('Faculty page', () => {
     const mock = vi.fn(async (url: string, init?: RequestInit) => response(init?.method === 'POST' ? { id: failed.id } : url === '/api/exams' ? { exams: [exam(), failed] } : { metadata: exam(), specification }, init?.method === 'POST' ? 202 : 200));
     vi.stubGlobal('fetch', mock); render(<FacultyPage />); await screen.findByText('Ready');
     expect(screen.getByText('Preparation refused.')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'View questions & rubric' })); await screen.findByText('Accounts and amounts');
+    chooseExamAction('View questions & rubric'); await screen.findByText('Accounts and amounts');
     expect(screen.getByText(/AI-generated, not teacher-approved/)).toBeInTheDocument();
     const dialog = screen.getByRole('dialog', { name: 'Accounting test' });
     expect(within(dialog).getByText('Accounts and amounts')).toBeInTheDocument();

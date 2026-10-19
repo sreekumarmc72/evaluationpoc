@@ -2,6 +2,8 @@
 
 Faculty exam rows offer **Edit title** and **Delete**, including for failed preparations. Both actions are disabled during preparation and rejected while the server's processing reservation is occupied. Hosted faculty authentication and same-origin write protection apply to the new routes.
 
+The Nergy Vidya faculty interface keeps **Submissions** visible and groups secondary actions under **More**. Ready exams expose student links, copying, details/rubric, title editing and deletion in this menu. Source-file names are in the details popup; failed/preparing exams expose them through a small source-files popup. Failed exams retain a visible retry button. The menu is rendered outside the scroll container to avoid clipping, supports arrow keys/Home/End and Escape, and closes on outside interaction, table scrolling or viewport resizing. These are frontend presentation changes; existing API handlers and deletion confirmations are unchanged.
+
 ## Edit title
 
 `PATCH /api/exams/:id` accepts only `{ name }`, trimmed to 1–120 characters. Only the metadata title changes; exam ID, student link, preparation version, model, PDFs, rubric and submission history remain unchanged. The student page sees the new title when it next loads or refreshes its exam metadata.

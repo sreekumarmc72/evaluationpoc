@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { RunSchema, uploadFields, selectableModels, modelLabels, isTerminal, type EvaluationRun, type UploadField, type QuestionResult } from '@poc/shared';
+import { RunSchema, uploadFields, selectableModels, modelLabels, isTerminal, displayedTotals, type EvaluationRun, type UploadField, type QuestionResult } from '@poc/shared';
 
 type RetainedExam = Record<'questionPaper' | 'answerKey', { name: string; size: number; pages: number }>;
 type Health = { configured: boolean; model: string; models?: string[]; retainedExam?: RetainedExam | null; limits: { maxFileBytes: number; maxPages: number } };
@@ -48,7 +48,8 @@ function MarkReview({ result, onSave }: { result: QuestionResult; onSave: (id: s
   </form></details>;
 }
 export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id: string, marks: number, reason: string) => Promise<void> }) {
-  const totals = run.totals;
+  const rawTotals = run.totals;
+  const totals = rawTotals ? displayedTotals(rawTotals) : null;
   const noneFinalised = !!totals && run.results.length > 0 && run.results.every(r => r.marks === null && !r.teacherAdjustment);
   const provisional = totals?.totalMarks === null && totals.provisionalTotal != null;
   return <section aria-label="Evaluation results" className="results">
@@ -58,6 +59,7 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
         <p>{totals.totalMarks === null ? `Pending review: ${totals.pendingQuestions.join(', ')}. ${provisional ? 'Provisional marks include tentative awards; they are not final.' : 'Final total and percentage are withheld.'}` : `${number(totals.percentage!)}% · All questions evaluated`}</p>
       </div><div className="score-note">Check the transcription and reasoning against the original scan before using these marks.</div>
     </div>}
+    {totals && rawTotals && !(noneFinalised && !provisional) && <details className="total-calculation"><summary>Total calculation & rounding</summary><p>Original calculated {totals.totalMarks !== null ? 'total' : provisional ? 'provisional total' : 'graded subtotal'}: {number(rawTotals.totalMarks ?? (provisional ? rawTotals.provisionalTotal! : rawTotals.gradedSubtotal))} / {number(rawTotals.maximumMarks)}.</p><p>Only the displayed overall total is rounded: fractions below 0.5 round down, above 0.5 round up, and exactly 0.5 stays unchanged. The total never exceeds the maximum marks. Question marks, rubric awards and saved calculations retain their original precision.</p></details>}
     {run.warnings.length > 0 && <div className="notice"><strong>Notes from processing</strong><ul>{[...new Set(run.warnings)].map(w => <li key={w}>{w}</li>)}</ul></div>}
     {run.results.length > 0 && <div className="section-heading"><h2>Question-by-question</h2><span>{run.results.length} questions</span></div>}
     <div className="question-list">{run.results.map(result => {

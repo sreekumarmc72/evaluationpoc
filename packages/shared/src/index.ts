@@ -102,6 +102,20 @@ export type Grading = z.infer<typeof GradingSchema>;
 export type QuestionResult = z.infer<typeof ResultSchema>;
 export type EvaluationRun = z.infer<typeof RunSchema>;
 export type Totals = z.infer<typeof TotalsSchema>;
+// Presentation only: never use these values to grade criteria or persist results.
+export function roundDisplayedTotal(value: number, maximumMarks: number): number {
+  const whole = Math.floor(value);
+  const fraction = value - whole;
+  const rounded = Math.abs(fraction - 0.5) < 1e-9 ? whole + 0.5 : fraction > 0.5 ? whole + 1 : whole;
+  return Math.min(maximumMarks, Math.max(0, rounded));
+}
+export function displayedTotals(totals: Totals): Totals {
+  const score = (value: number) => roundDisplayedTotal(value, totals.maximumMarks);
+  const totalMarks = totals.totalMarks === null ? null : score(totals.totalMarks);
+  const provisionalTotal = totals.provisionalTotal == null ? null : score(totals.provisionalTotal);
+  const percent = (value: number | null) => value === null || totals.maximumMarks <= 0 ? null : Math.round(value / totals.maximumMarks * 1000000) / 10000;
+  return { ...totals, gradedSubtotal: score(totals.gradedSubtotal), totalMarks, percentage: percent(totalMarks), provisionalTotal, provisionalPercentage: percent(provisionalTotal) };
+}
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const PreparedExamSchema = z.object({
