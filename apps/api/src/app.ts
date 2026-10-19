@@ -86,6 +86,11 @@ export function createApp(options: Options) {
     if (!run) return next(new AppError('NOT_FOUND', 'Evaluation not found. It may have expired or the server restarted. Upload again.', 404));
     res.json(run);
   });
+  app.patch('/api/evaluations/:id/student-name', express.json({ limit: '2kb' }), (req, res, next) => {
+    const input = z.object({ name: z.string().trim().min(1).max(160) }).strict().safeParse(req.body);
+    if (!input.success) return next(new AppError('INVALID_STUDENT_NAME', 'Enter a student name of 1–160 characters.', 400));
+    void options.store.setStudentName(req.params.id, input.data.name).then(run => res.json(run)).catch(next);
+  });
   app.patch('/api/evaluations/:id/questions/:questionId', express.json({ limit: '8kb' }), (req, res, next) => {
     const run = options.store.get(req.params.id);
     if (!run) return next(new AppError('NOT_FOUND', 'Evaluation expired or server restarted. Upload again.', 404));
@@ -98,7 +103,7 @@ export function createApp(options: Options) {
       const updated = structuredClone(run);
       updated.results.find(item => item.identifier === req.params.questionId)!.teacherAdjustment = { ...input.data, updatedAt: Date.now() };
       updated.totals = calculateTotals(updated.results);
-      await options.store.checkpoint(updated); Object.assign(run, updated); res.json(run);
+      await options.store.checkpoint(updated); updated.manualStudentName = run.manualStudentName; Object.assign(run, updated); res.json(run);
     })().catch(next);
   });
   app.delete('/api/evaluations/:id', (req, res, next) => {

@@ -69,6 +69,10 @@
 .student-shell .mark.review { color: #846322; background: #fbf3df; }
 .student-shell .submission-saved { color: #425573; background: #edf1f8; border-color: #cbd4e3; overflow-wrap: anywhere; }
 .student-shell .scan iframe { background: #eceef3; }
+.student-shell .rubric-modal { color: #25262c; background: #f7f7f8; border-color: #dddde5; }
+.student-shell .rubric-modal-heading { border-color: #dddde5; }
+.student-shell .rubric-modal::backdrop { background: #15203999; }
+.student-shell .student-name-form input { color: #25262c; border-color: #cdd0dc; }
 .student-shell > footer { color: var(--student-muted); border-color: var(--student-border); }
 @media (max-width: 1000px) {
   .student-shell .student-steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -83,7 +83,9 @@ export const TotalsSchema = z.object({
 });
 export const UsageSchema = z.object({ inputTokens: z.number(), outputTokens: z.number(), totalTokens: z.number() });
 export const RunErrorSchema = z.object({ code: z.string(), message: z.string(), stage: z.enum(stages) });
+export const ManualStudentNameSchema = z.object({ name: z.string().trim().min(1).max(160), updatedAt: z.number() });
 export const RunSchema = z.object({
+  manualStudentName: ManualStudentNameSchema.optional(),
   durable: z.boolean().optional(),
   id: z.string(), stage: z.enum(stages), createdAt: z.number(), finishedAt: z.number().nullable(),
   exam: ExamSchema.nullable(), transcription: TranscriptionSchema.nullable(),
@@ -130,6 +132,7 @@ export const PreparedExamSchema = z.object({
 });
 export type PreparedExam = z.infer<typeof PreparedExamSchema>;
 export const SubmissionSummarySchema = z.object({
+  nameSource: z.enum(['scan', 'manual', 'unavailable']).optional(),
   id: z.string().uuid(), createdAt: z.number(), stage: z.enum(stages), model: z.string(), totals: TotalsSchema.nullable(),
   studentName: z.string().nullable(), nameStatus: z.enum(['readable', 'unclear', 'absent']), interrupted: z.boolean(), error: z.string().nullable(),
 });

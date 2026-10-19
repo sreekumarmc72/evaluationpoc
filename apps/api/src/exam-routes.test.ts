@@ -28,6 +28,43 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('saves a manual name without changing scan identity, grading bytes or PDFs, and reloads it after restart', async () => {
+    const app = appFor(); const created = await create(app); await prepared(app, created.body.id);
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    const original = await finished(app, submitted.body.id);
+    const filename = path.join(root, 'submissions', created.body.id, submitted.body.id, 'evaluation.json');
+    const bytes = await readFile(filename);
+    const saved = await request(app).patch(`/api/evaluations/${submitted.body.id}/student-name`).send({ name: '  Anu Thomas  ' });
+    expect(saved.status).toBe(200); expect(saved.body.manualStudentName.name).toBe('Anu Thomas');
+    expect(saved.body.transcription).toEqual(original.transcription);
+    expect(saved.body.results).toEqual(original.results); expect(saved.body.totals).toEqual(original.totals);
+    expect(await readFile(filename)).toEqual(bytes); expect(await store.read(submitted.body.id, 'answerSheet')).toEqual(pdf);
+    const history = await request(app).get(`/api/exams/${created.body.id}/submissions?search=Anu`);
+    expect(history.body.total).toBe(1); expect(history.body.submissions[0]).toMatchObject({ studentName: 'Anu Thomas', nameSource: 'manual', nameStatus: 'absent' });
+    for (const body of [{ name: '' }, { name: 'x'.repeat(161) }, { name: 'Anu', marks: 25 }]) expect((await request(app).patch(`/api/evaluations/${submitted.body.id}/student-name`).send(body)).status).toBe(400);
+    await store.dispose(); store = new RunStore(path.join(root, 'name-restart-runs'), 3600000, path.join(root, 'submissions')); await store.initialize();
+    expect(store.get(submitted.body.id)?.manualStudentName?.name).toBe('Anu Thomas');
+    expect(store.get(submitted.body.id)?.totals).toEqual(original.totals);
+  });
+  it('restricts manual names to the owning session or faculty and refuses readable scan names', async () => {
+    const model = fakeModel(); const open = appFor(model); const created = await create(open); await prepared(open, created.body.id);
+    const password = 'test-name-password';
+    const app = createApp({ store, examCatalog: catalog, model, models: { 'gpt-6.1-sol': model }, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: password, requireFacultyAuth: true });
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(open, submitted.body.id);
+    const cookie = submitted.headers['set-cookie'][0].split(';')[0]; const url = `/api/evaluations/${submitted.body.id}/student-name`;
+    expect((await request(app).patch(url).send({ name: 'Anu' })).status).toBe(401);
+    expect((await request(app).patch(url).set('Cookie', 'submission_access=wrong').send({ name: 'Anu' })).status).toBe(401);
+    expect((await request(app).patch(url).set('Cookie', cookie).send({ name: 'Anu' })).status).toBe(200);
+    expect((await request(app).patch(`/api/evaluations/${submitted.body.id}/questions/1`).set('Cookie', cookie).send({ marks: 2, reason: 'Override' })).status).toBe(401);
+    expect((await request(app).patch(url).auth('faculty', password).send({ name: 'Anu Thomas' })).status).toBe(200);
+    const identity = transcriptionFixture(); identity.studentIdentity = { name: 'Readable Student', status: 'readable', sourcePages: [1], note: 'Name field' };
+    vi.mocked(model.transcribe).mockResolvedValueOnce({ value: identity, usage });
+    const named = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'named.pdf'); await finished(open, named.body.id);
+    expect((await request(app).patch(`/api/evaluations/${named.body.id}/student-name`).set('Cookie', cookie).send({ name: 'Wrong session' })).status).toBe(401);
+    expect((await request(app).patch(`/api/evaluations/${named.body.id}/student-name`).auth('faculty', password).send({ name: 'Replacement' })).status).toBe(409);
+    const active = await store.create({ answerSheet: pdf }, 'gpt-6.1-sol', { examId: created.body.id, examVersion: 1, exam: specification() });
+    expect((await request(app).patch(`/api/evaluations/${active.id}/student-name`).auth('faculty', password).send({ name: 'Too early' })).status).toBe(409);
+  });
   it('persists a title edit without changing the exam ID, rubric, model or documents', async () => {
     const model = fakeModel(); const app = appFor(model); const created = await create(app); const before = await prepared(app, created.body.id);
     const edited = await request(app).patch(`/api/exams/${created.body.id}`).send({ name: '  Revised Accounting  ' });

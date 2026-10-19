@@ -27,7 +27,8 @@ export function facultyAccess(options: { facultyPassword?: string; facultyUser?:
     }
     const id = /^\/api\/evaluations\/([^/]+)/.exec(route)?.[1];
     if (id && options.store.isSaved(id) && !isFaculty(req)) {
-      if (req.method === 'PATCH') { deny(req, res); return; }
+      const nameUpdate = req.method === 'PATCH' && /^\/api\/evaluations\/[^/]+\/student-name\/?$/.test(route);
+      if (req.method === 'PATCH' && !nameUpdate) { deny(req, res); return; }
       const cookie = (req.get('cookie') ?? '').split(';').map(part => part.trim()).find(part => part.startsWith('submission_access='))?.slice('submission_access='.length) ?? '';
       if (!options.store.hasAccess(id, cookie)) { res.status(401).json({ error: { code: 'SUBMISSION_ACCESS_REQUIRED', message: 'This submission requires its original browser session or faculty sign-in.' } }); return; }
     }

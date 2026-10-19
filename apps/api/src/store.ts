@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash, timingSafeEqual } from 'node:crypto';
 import { mkdir, writeFile, readFile, rm, rename, unlink, readdir, statfs, access } from 'node:fs/promises';
 import path from 'node:path';
-import { RunSchema, type EvaluationRun, type Exam, type UploadField, isTerminal, uploadFields } from '@poc/shared';
+import { RunSchema, ManualStudentNameSchema, type EvaluationRun, type Exam, type UploadField, isTerminal, uploadFields } from '@poc/shared';
 import { AppError } from './errors.js';
 
 export class RunStore {
@@ -27,6 +27,8 @@ export class RunStore {
           const accessData = JSON.parse(await readFile(path.join(directory, 'access.json'), 'utf8'));
           if (run.id !== item.name || run.examId !== exam.name || !/^[a-f0-9]{64}$/.test(accessData.tokenHash)) throw new Error('Invalid saved submission');
           await access(path.join(directory, 'answerSheet.pdf'));
+          try { run.manualStudentName = ManualStudentNameSchema.parse(JSON.parse(await readFile(path.join(directory, 'student-name.json'), 'utf8'))); }
+          catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') { delete run.manualStudentName; run.warnings.push('The saved manual student name could not be loaded. The name file was preserved; the evaluation and marks remain available.'); console.warn('A saved manual student name could not be loaded; its evaluation remains available.'); } }
           run.durable = true;
           this.saved.set(run.id, { directory, tokenHash: accessData.tokenHash }); this.entries.set(run.id, run);
           if (!isTerminal(run.stage)) {
@@ -59,8 +61,21 @@ export class RunStore {
   list(examId: string) {
     return [...this.entries.values()].filter(run => this.saved.has(run.id) && run.examId === examId).sort((a, b) => b.createdAt - a.createdAt).map(run => {
       const identity = run.transcription?.studentIdentity;
-      return { id: run.id, createdAt: run.createdAt, stage: run.stage, model: run.model, totals: run.totals, studentName: identity?.status === 'readable' ? identity.name : null, nameStatus: identity?.status ?? 'absent', interrupted: run.error?.code === 'PROCESSING_INTERRUPTED', error: run.error?.message ?? null };
+      return { id: run.id, createdAt: run.createdAt, stage: run.stage, model: run.model, totals: run.totals, studentName: run.manualStudentName?.name ?? (identity?.status === 'readable' ? identity.name : null), nameSource: run.manualStudentName ? 'manual' : identity?.status === 'readable' ? 'scan' : 'unavailable', nameStatus: identity?.status ?? 'absent', interrupted: run.error?.code === 'PROCESSING_INTERRUPTED', error: run.error?.message ?? null };
     });
+  }
+  async setStudentName(id: string, name: string) {
+    const run = this.entries.get(id); const saved = this.saved.get(id);
+    if (!run || !saved) throw new AppError('NOT_FOUND', 'Saved submission not found.', 404);
+    if (run.stage !== 'completed') throw new AppError('RUN_ACTIVE', 'Enter the name after evaluation finishes.', 409);
+    if (run.transcription?.studentIdentity?.status === 'readable' && run.transcription.studentIdentity.name?.trim()) throw new AppError('NAME_ALREADY_READABLE', 'This submission already has a readable name from the scan.', 409);
+    const value = ManualStudentNameSchema.parse({ name, updatedAt: Date.now() });
+    const temporary = path.join(saved.directory, `${randomUUID()}.tmp`);
+    try { await writeFile(temporary, JSON.stringify(value), { flag: 'wx' }); await rename(temporary, path.join(saved.directory, 'student-name.json')); }
+    catch { throw new AppError('STORAGE_FAILURE', 'Could not save the student name. Please try again.', 507); }
+    finally { await unlink(temporary).catch(() => {}); }
+    run.manualStudentName = value;
+    return structuredClone(run);
   }
   async storageUsage() {
     if (!this.submissionsRoot) return null;

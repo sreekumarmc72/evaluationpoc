@@ -6,6 +6,7 @@ import rehypeKatex from 'rehype-katex';
 import { PreparedExamSchema, RunSchema, ExamSchema, modelLabels, isTerminal, type PreparedExam, type Exam, type EvaluationRun } from '@poc/shared';
 import { Results } from './App';
 import { SubmissionHistory } from './SubmissionHistory';
+import { StudentNamePrompt } from './StudentNameEntry';
 import './exam-pages.css';
 import './student-theme.css';
 import './faculty-theme.css';
@@ -265,6 +266,7 @@ function StudentExam({ examId }: { examId: string }) {
     {!runId && <section className="upload-panel"><div className="section-heading"><h2>Submit answer sheet</h2><button className="secondary" onClick={() => { void refresh(); }} disabled={busy}>Refresh exam</button></div>{loading ? <p>Loading exam…</p> : exam?.status === 'preparing' ? <p role="status">This exam is still being prepared. Please try again when your faculty confirms it is ready.</p> : exam?.status === 'failed' ? <p>This exam is not ready for submissions. Please contact your faculty.</p> : exam?.status === 'ready' && <form className="exam-form" onSubmit={submit}><p className="muted">Fixed rubric version {exam.version}</p><div className="upload-card"><label htmlFor="student-sheet">Handwritten answer sheet</label><p>One scanned PDF. Question paper and answer key are already saved.</p><input id="student-sheet" type="file" accept="application/pdf,.pdf" disabled={busy} onChange={event => setSheet(event.target.files?.[0])} />{sheet && <small>{sheet.name}</small>}</div><button disabled={busy || !sheet}>{busy ? 'Submitting…' : 'Submit for evaluation'}</button></form>}</section>}
     {runId && <section className="progress-panel" aria-live="polite"><div className="section-heading"><h2>{missing ? 'Submission expired' : stageLabels[run?.stage ?? 'validating'] ?? 'Processing answer sheet'}</h2>{(!busy && (missing || (run && isTerminal(run.stage)))) && <button className="secondary" onClick={() => { void nextSheet(); }}>New submission</button>}</div><p className="muted">{exam?.name ?? 'Prepared exam'} · The saved questions and rubric are reused; no exam extraction call is made.</p>{!missing && <StudentProgress run={run} />}{run?.error && <p className="error" role="alert">{run.error.message}</p>}</section>}
     {run?.durable && run.stage === 'completed' && <p className="notice submission-saved">Submission saved under this exam. Reference: {run.id}. Starting a new submission keeps this report in faculty history.</p>}
+    {run && !missing && <StudentNamePrompt key={run.id} run={run} onSaved={setRun} />}
     {run && <div className="results-layout"><Results run={run} />{runId && <aside className="scan"><div className="section-heading"><h2>Original answer sheet</h2><a href={preview || `/api/evaluations/${runId}/answer-sheet`} target="_blank" rel="noreferrer">Open PDF ↗</a></div><iframe title="Original answer sheet PDF" src={preview || `/api/evaluations/${runId}/answer-sheet`} /></aside>}</div>}
     </>}
     {error && <div className="error" role="alert">{error}{runId && !missing && !unavailable && <p>Reconnecting to the same submission automatically. Do not resubmit while processing is in progress.</p>}</div>}

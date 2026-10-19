@@ -4,6 +4,7 @@ import { render, screen, waitFor, fireEvent, cleanup, act, within } from '@testi
 import '@testing-library/jest-dom/vitest';
 import { FacultyPage, StudentPage, StudentProgress, studentExamIdFromPath } from './ExamPages';
 import { SubmissionHistory, submissionScore } from './SubmissionHistory';
+import { StudentNamePrompt } from './StudentNameEntry';
 import type { PreparedExam, EvaluationRun } from '@poc/shared';
 
 const id = '11111111-1111-4111-8111-111111111111';
@@ -61,6 +62,69 @@ describe('Student progress', () => {
     expect(steps[1]).toHaveTextContent('Stopped');
     expect(steps[2]).toHaveTextContent('Not started');
     expect(steps[1]).not.toHaveAttribute('aria-current');
+  });
+});
+describe('Manual student name', () => {
+  it('lets faculty name an unnamed report and shows the saved name in history', async () => {
+    let named = false; const original = { ...result(), id, durable: true };
+    const mock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === 'PATCH') { named = true; return response({ ...original, manualStudentName: { name: 'Anu Thomas', updatedAt: 1 } }); }
+      if (url.includes('/submissions')) return response({ submissions: [{ id, createdAt: 1, stage: 'completed', model: 'gpt-6.1-sol', totals: original.totals, studentName: named ? 'Anu Thomas' : null, nameSource: named ? 'manual' : 'unavailable', nameStatus: 'absent', interrupted: false, error: null }], total: 1 });
+      return response(original);
+    });
+    vi.stubGlobal('fetch', mock); render(<SubmissionHistory exam={exam()} onClose={() => {}} />);
+    await screen.findByText('Unnamed student'); fireEvent.click(screen.getByRole('button', { name: 'View result' }));
+    await screen.findByLabelText('Student name');
+    fireEvent.change(screen.getByLabelText('Student name'), { target: { value: 'Anu Thomas' } }); fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+    await screen.findByRole('heading', { name: 'Anu Thomas' });
+    expect(screen.getByText('Manually entered')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Back to submissions/ }));
+    await screen.findByText('Anu Thomas'); expect(screen.getByText('Manually entered')).toBeInTheDocument();
+    expect(mock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+  });
+  it.each(['absent', 'unclear'] as const)('prompts for a %s name, saves it, and stops prompting', async status => {
+    const original = { ...result(), durable: true, transcription: { answers: [], pagesRead: [1], allPagesRead: true, warnings: [], studentIdentity: { name: null, status, sourcePages: [1], note: 'No readable name' } } };
+    const updated = { ...original, manualStudentName: { name: 'Anu Thomas', updatedAt: 1 } };
+    const mock = vi.fn(async (_url: string, _init?: RequestInit) => response(updated)); vi.stubGlobal('fetch', mock);
+    function Harness() { const [run, setRun] = React.useState<EvaluationRun>(original); return <StudentNamePrompt run={run} onSaved={setRun} />; }
+    render(<Harness />);
+    const dialog = screen.getByRole('dialog', { name: 'Enter student name' });
+    fireEvent.change(within(dialog).getByLabelText('Student name'), { target: { value: ' Anu Thomas ' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save name' }));
+    await screen.findByText('Anu Thomas');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mock).toHaveBeenCalledTimes(1);
+    expect(mock.mock.calls[0][0]).toBe('/api/evaluations/submission/student-name');
+    expect(JSON.parse((mock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)).toEqual({ name: 'Anu Thomas' });
+    expect(original.results[0].marks).toBe(6);
+  });
+  it('allows skipping, remembers it for the session, and offers entry later', () => {
+    const value = { ...result(), durable: true };
+    const { unmount } = render(<StudentNamePrompt run={value} onSaved={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Skip for now' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    unmount(); render(<StudentNamePrompt run={value} onSaved={() => {}} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Add student name' }));
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    fireEvent(screen.getByRole('dialog'), new Event('cancel', { bubbles: true, cancelable: true }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it('does not prompt for readable names, saved names, active or temporary runs', () => {
+    const { rerender } = render(<StudentNamePrompt run={{ ...result(), durable: true, stage: 'transcribing' }} onSaved={() => {}} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    rerender(<StudentNamePrompt run={result()} onSaved={() => {}} />); expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    rerender(<StudentNamePrompt run={{ ...result(), durable: true, manualStudentName: { name: 'Saved Name', updatedAt: 1 } }} onSaved={() => {}} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument(); expect(screen.getByText('Saved Name')).toBeInTheDocument();
+    rerender(<StudentNamePrompt run={{ ...result(), durable: true, transcription: { answers: [], pagesRead: [1], allPagesRead: true, warnings: [], studentIdentity: { name: 'Read Name', status: 'readable', sourcePages: [1], note: 'Name field' } } }} onSaved={() => {}} />);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+  it('keeps name entry available after a save failure', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ error: { message: 'Could not save the student name.' } }, 507)));
+    render(<StudentNamePrompt run={{ ...result(), durable: true }} onSaved={() => {}} />);
+    fireEvent.change(screen.getByLabelText('Student name'), { target: { value: 'Anu' } }); fireEvent.click(screen.getByRole('button', { name: 'Save name' }));
+    await screen.findByRole('alert'); expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByLabelText('Student name')).toHaveValue('Anu'); expect(screen.getByRole('button', { name: 'Skip for now' })).toBeEnabled();
   });
 });
 describe('Faculty page', () => {
