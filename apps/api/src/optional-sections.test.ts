@@ -18,6 +18,36 @@ function evaluate(t: Transcription, exam = optionalExamFixture(), scores: Record
   return validateGrading(grading, exam, applyResolution(t, resolution), resolution, t);
 }
 describe('Optional sections', () => {
+  it('adds every available counted award even when another question has no defensible score', () => {
+    const exam = optionalExamFixture(); const scored = evaluate(answers(['1', '3', '5', '6']), exam);
+    const q1 = scored.results.find(r => r.identifier === '1')!;
+    q1.marks = null; q1.provisionalMarks = 5; q1.status = 'needs_review';
+    const q3 = scored.results.find(r => r.identifier === '3')!;
+    q3.marks = null; q3.provisionalMarks = null; q3.status = 'needs_review';
+    const totals = calculateTotals(scored.results, exam);
+    expect(totals.sectionResults?.[0].provisionalTotal).toBe(5);
+    expect(totals.sectionResults?.[1].totalMarks).toBe(30);
+    expect(totals.provisionalTotal).toBe(35);
+    expect(q3.provisionalMarks).toBeNull();
+  });
+  it('selects highest provisional scores and breaks ties by script order', () => {
+    const t = answers(['3', '1', '2', '5', '6']); t.allPagesRead = false;
+    const scored = evaluate(t, undefined, { '1': 5, '2': 5, '3': 7 });
+    expect(scored.totals.sectionResults?.[0]).toMatchObject({ countedQuestionIds: ['1', '3'], provisionalTotal: 12 });
+    expect(scored.totals.provisionalTotal).toBe(42);
+  });
+  it('counts Q1 and Q3 provisionally when a crossed-out heading could be Q2', () => {
+    const t = answers(['1', '3', null, '5', '6']);
+    t.answers[2].text = '[Crossed-out heading: essentials of a good cost accounting system]';
+    t.answers[2].uncertainties = [{ id: 'heading', description: 'An abandoned Q2 heading may be a fragment rather than an active answer.', scope: 'mapping', impact: 'potentially_score_changing', sourcePages: [1] }];
+    const scored = evaluate(t, undefined, { '1': 5, '3': 7, '5': 10, '6': 3 }, ['2']);
+    expect(scored.totals).toMatchObject({ totalMarks: null, provisionalTotal: 25, gradedSubtotal: 13 });
+    expect(scored.totals.sectionResults?.[0]).toMatchObject({ countedQuestionIds: ['1', '3'], provisionalTotal: 12, totalMarks: null });
+    expect(scored.results.find(r => r.identifier === '1')).toMatchObject({ marks: null, provisionalMarks: 5, selectionStatus: 'counted' });
+    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/entry-3/);
+    expect(t.answers[2].text).toContain('Crossed-out heading');
+    expect(scored.totals.sectionResults?.[1].totalMarks).toBe(13);
+  });
   it('counts Q1=5 and Q3=7 despite assessed non-material reading notes and an informational fragment', () => {
     const t = answers(['1', '3', '4', '6', null]);
     for (const [index, scope] of ['crossed_out', 'final_answer', 'presentation', 'presentation', 'crossed_out'].entries()) {
@@ -40,11 +70,12 @@ describe('Optional sections', () => {
     expect(evaluate(t, undefined, { '1': 5, '3': 7 }).totals.sectionResults?.[0].totalMarks).toBe(12);
     expect(t.answers[1].withdrawn).toBe(true);
   });
-  it('keeps uncertain whole-answer cancellation pending and gives a specific entry reason', () => {
+  it('counts established answers provisionally with a specific cancellation review reason', () => {
     const t = answers(['1', '3', '4', '6']);
     t.answers[0].uncertainties = [{ id: 'cancel', description: 'Possibly the whole answer is cancelled.', sourcePages: [1], scope: 'mapping', impact: 'potentially_score_changing' }];
     const scored = evaluate(t);
     expect(scored.totals.sectionResults?.[0].totalMarks).toBeNull();
+    expect(scored.totals.sectionResults?.[0].provisionalTotal).toBe(20);
     expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/entry-1.*cancellation/);
     expect(scored.totals.sectionResults?.[1].totalMarks).toBe(30);
   });
@@ -57,11 +88,11 @@ describe('Optional sections', () => {
     expect(scored.results.find(r => r.identifier === '1')?.reviewFlags).toContain('Not all answer-sheet pages could be read.');
     expect(scored.results.find(r => r.identifier === '1')?.selectionNote).toMatch(/Counted toward the provisional total/);
   });
-  it('does not use incomplete coverage to count too many optional answers', () => {
+  it('counts only the best two visible awards with incomplete coverage', () => {
     const t = answers(['1', '2', '3', '4', '6']); t.allPagesRead = false;
     const scored = evaluate(t);
-    expect(scored.totals.provisionalTotal).toBeNull();
-    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/More than 2/);
+    expect(scored.totals.provisionalTotal).toBe(50);
+    expect(scored.totals.sectionResults?.[0].countedQuestionIds).toHaveLength(2);
   });
   it('does not dismiss unsupported unmapped content merely because its reading note is non-material', () => {
     const t = answers(['1', '3', '4', '6', null]);
@@ -96,11 +127,12 @@ describe('Optional sections', () => {
     expect(scored.results.find(r => r.identifier === '1')?.selectionStatus).toBe('counted');
     expect(scored.totals.totalMarks).toBe(40);
   });
-  it('withholds an over-attempted section without silently taking best or first answers', () => {
+  it('uses the configured highest scores when the paper has no excess policy', () => {
     const scored = evaluate(answers(['1', '2', '3', '4', '5']), undefined, { '1': 1, '2': 5, '3': 10 });
-    expect(scored.totals).toMatchObject({ gradedSubtotal: 30, totalMarks: null, provisionalTotal: null, pendingQuestions: ['1', '2', '3'] });
+    expect(scored.totals).toMatchObject({ gradedSubtotal: 45, totalMarks: 45, provisionalTotal: 45, pendingQuestions: [] });
+    expect(scored.totals.sectionResults?.[0].countedQuestionIds).toEqual(['2', '3']);
     expect(scored.totals.sectionResults?.[1].totalMarks).toBe(30);
-    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/No highest-score or first-answer/);
+    expect(scored.results.find(r => r.identifier === '2')?.selectionNote).toMatch(/highest-2/);
   });
   it('uses first-in-script only with an explicit printed policy, not question-number order', () => {
     const exam = optionalExamFixture(); exam.selectionGroups![0].excessPolicy = 'first_in_script'; exam.selectionGroups![0].excessInstructions = 'If more than two are attempted, count the first two answers in the script.';
@@ -118,12 +150,13 @@ describe('Optional sections', () => {
   });
   it('scopes unknown labels conservatively and never declares uncertain content absent', () => {
     const scored = evaluate(answers(['1', '2', '4', '5', null]));
-    expect(scored.totals.totalMarks).toBeNull(); expect(scored.totals.pendingQuestions).toHaveLength(6);
+    expect(scored.totals.totalMarks).toBeNull(); expect(scored.totals.pendingQuestions).toHaveLength(4);
+    expect(scored.totals.provisionalTotal).toBe(50);
   });
   it('keeps an unrelated section final when ambiguous content has candidates only in Part A', () => {
     const scored = evaluate(answers(['1', '2', '4', '5', null]), undefined, {}, ['3']);
     expect(scored.totals.gradedSubtotal).toBe(30);
-    expect(scored.totals.pendingQuestions).toEqual(['1', '2', '3']);
+    expect(scored.totals.pendingQuestions).toEqual(['1', '2']);
     expect(scored.totals.sectionResults?.[1].totalMarks).toBe(30);
   });
   it('keeps evidence-based provisional awards for counted answers with the fixed exam maximum', () => {

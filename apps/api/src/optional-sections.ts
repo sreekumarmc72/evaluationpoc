@@ -57,13 +57,26 @@ export function applyOptionalSelection(results: QuestionResult[], exam: Exam, tr
     }
     const ambiguous = reasons.length > 0;
     const over = attempted.length > group.requiredCount;
-    const pending = ambiguous || (over && group.excessPolicy === 'review');
+    const pending = ambiguous && !attempted.length;
+    const provisionalSelection = ambiguous && !pending;
+    const selectionWarning = `Provisional selection: counting only established visible answers; review the unresolved fragment before finalising. ${[...new Set(reasons)].join(' ')}`;
     // Page order takes precedence; preserved entry order breaks ties on a page.
     const order = (id: string) => Math.min(...transcription.answers.map((a, index) => !withdrawn.has(a.entryId) && mappings.some(m => m.entryId === a.entryId && m.questionId === id) ? Math.min(...a.sourcePages) * (transcription.answers.length + 1) + index : Infinity));
-    const counted = pending ? [] : over ? [...attempted].sort((a, b) => order(a) - order(b)).slice(0, group.requiredCount) : attempted;
+    const award = (id: string) => { const r = results.find(r => r.identifier === id)!; return r.teacherAdjustment?.marks ?? r.marks ?? r.provisionalMarks ?? 0; };
+    const counted = pending ? [] : over ? [...attempted].sort((a, b) => group.excessPolicy === 'first_in_script' ? order(a) - order(b) : award(b) - award(a) || order(a) - order(b)).slice(0, group.requiredCount) : attempted;
     for (const result of results.filter(r => group.questionIds.includes(r.identifier))) {
       result.selectionStatus = pending ? 'pending_selection' : counted.includes(result.identifier) ? 'counted' : 'not_selected';
       result.selectionNote = pending ? ambiguous ? [...new Set(reasons)].join(' ') : `More than ${group.requiredCount} answers were attempted without a printed rule choosing which count. No highest-score or first-answer policy was assumed.` : result.selectionStatus === 'counted' ? !transcription.allPagesRead ? 'Counted toward the provisional total from the visible answers. Incomplete page coverage still requires review.' : 'Counted toward this section.' : 'Optional alternative not selected — no deduction for this question.';
+      if (over && group.excessPolicy === 'review') result.selectionNote = `${result.selectionStatus === 'counted' ? 'Counted' : 'Not selected'} under the configured highest-${group.requiredCount}-scores rule because the paper supplies no excess-answer rule. Ties use script order.`;
+      if (provisionalSelection) {
+        result.selectionNote = selectionWarning;
+        if (result.selectionStatus === 'counted') {
+          result.provisionalMarks = result.marks ?? result.provisionalMarks ?? null;
+          result.marks = null;
+          result.status = 'needs_review';
+          result.reviewFlags = [...new Set([...result.reviewFlags, selectionWarning])];
+        }
+      }
       if (result.selectionStatus === 'not_selected' && result.status === 'unattempted') { result.missingPoints = []; result.justification = result.selectionNote; }
     }
   }
@@ -83,16 +96,17 @@ export function optionalTotals(results: QuestionResult[], exam: Exam): Totals {
       countedQuestionIds: counted.map(r => r.identifier), notSelectedQuestionIds: members.filter(r => r.selectionStatus === 'not_selected').map(r => r.identifier),
       pendingQuestionIds: members.filter(r => r.selectionStatus === 'pending_selection' || (r.selectionStatus === 'counted' && effective(r) === null)).map(r => r.identifier),
       gradedSubtotal: subtotal, totalMarks: pending.length || counted.some(r => effective(r) === null) ? null : subtotal,
-      provisionalTotal: pending.length || proposals.some(n => n === null) ? null : round(proposals.reduce<number>((sum, n) => sum + n!, 0)),
-      reviewFlags: [...new Set(pending.map(r => r.selectionNote ?? 'Section selection needs review.'))],
-      notes: !pending.length && counted.length < group.requiredCount ? [`${counted.length} of ${group.requiredCount} required answers attempted; missing answer slots receive no marks. The section maximum remains ${group.maximumMarks}.`] : group.excessPolicy === 'first_in_script' ? ['Where excess answers occur, the printed first-in-script rule determines the counted answers.'] : [],
+      provisionalTotal: round(proposals.reduce<number>((sum, n) => sum + (n ?? 0), 0)),
+      reviewFlags: [...new Set([...pending.map(r => r.selectionNote ?? 'Section selection needs review.'), ...counted.filter(r => r.selectionNote?.startsWith('Provisional selection:')).map(r => r.selectionNote!)])],
+      notes: !pending.length && counted.length < group.requiredCount ? [`${counted.length} of ${group.requiredCount} required answers established; only available awards contribute for now. The section maximum remains ${group.maximumMarks}.`] : group.excessPolicy === 'first_in_script' ? ['Where excess answers occur, the printed first-in-script rule determines the counted answers.'] : ['Where excess answers occur without a printed policy, the configured highest-scores rule selects up to the required count; ties use script order.'],
     };
   });
   const counted = results.filter(r => r.selectionStatus === 'counted');
   const pendingQuestions = results.filter(r => r.selectionStatus === 'pending_selection' || (r.selectionStatus === 'counted' && effective(r) === null)).map(r => r.identifier);
   const maximumMarks = round(examMaximumMarks(exam));
   const gradedSubtotal = round(counted.reduce((sum, r) => sum + (effective(r) ?? 0), 0));
-  const proposals = counted.map(r => effective(r) ?? r.provisionalMarks ?? null);
-  const provisionalTotal = results.some(r => r.selectionStatus === 'pending_selection') || proposals.some(n => n === null) ? null : round(proposals.reduce<number>((sum, n) => sum + n!, 0));
+  const grouped = new Set(exam.selectionGroups!.flatMap(group => group.questionIds));
+  const compulsory = counted.filter(r => !grouped.has(r.identifier));
+  const provisionalTotal = round(sectionResults.reduce((sum, section) => sum + (section.provisionalTotal ?? 0), 0) + compulsory.reduce((sum, r) => sum + (effective(r) ?? r.provisionalMarks ?? 0), 0));
   return { maximumMarks, gradedSubtotal, totalMarks: pendingQuestions.length ? null : gradedSubtotal, percentage: pendingQuestions.length ? null : round(gradedSubtotal / maximumMarks * 100), pendingQuestions, provisionalTotal, provisionalPercentage: provisionalTotal === null ? null : round(provisionalTotal / maximumMarks * 100), sectionResults };
 }

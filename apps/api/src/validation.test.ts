@@ -108,7 +108,10 @@ describe('Scoring integrity', () => {
     const g = gradingFixture(); g.results[0].provisionalMarks = 99;
     expect(() => validateGrading(g, examFixture(), transcriptionFixture())).toThrow(/provisional/);
     g.results[0].provisionalMarks = null; g.results[0].marks = null; g.results[0].status = 'needs_review';
-    expect(validateGrading(g, examFixture(), transcriptionFixture()).totals.provisionalTotal).toBeNull();
+    const assessed = validateGrading(g, examFixture(), transcriptionFixture());
+    expect(assessed.totals.provisionalTotal).toBe(3);
+    expect(assessed.results[0].marks).toBeNull();
+    expect(assessed.results[0].provisionalMarks).toBeNull();
   });
   it.each(['duplicate', 'unknown', 'missing', 'over', 'negative', 'malformed', 'wrong_max'])('rejects %s grades', kind => {
     const g = gradingFixture();

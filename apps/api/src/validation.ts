@@ -248,7 +248,9 @@ export function calculateTotals(results: QuestionResult[], exam?: Exam | null): 
   const maximumMarks = round(results.reduce((s, r) => s + r.maximumMarks, 0));
   const gradedSubtotal = round(results.reduce((s, r) => s + (effective(r) ?? 0), 0));
   const proposals = results.map(r => effective(r) ?? r.provisionalMarks ?? null);
-  const provisionalTotal = proposals.some(n => n === null) ? null : round(proposals.reduce<number>((sum, n) => sum + n!, 0));
+  // A missing award must not hide marks already assessed elsewhere. Null is
+  // retained on the question; it is not converted to an assessed zero.
+  const provisionalTotal = round(proposals.reduce<number>((sum, n) => sum + (n ?? 0), 0));
   return { maximumMarks, gradedSubtotal, totalMarks: pendingQuestions.length ? null : gradedSubtotal, percentage: pendingQuestions.length ? null : round(gradedSubtotal / maximumMarks * 100), pendingQuestions, provisionalTotal, provisionalPercentage: provisionalTotal === null ? null : round(provisionalTotal / maximumMarks * 100) };
 }
 
