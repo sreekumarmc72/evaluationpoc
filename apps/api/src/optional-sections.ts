@@ -2,8 +2,12 @@ import { examMaximumMarks, type Exam, type QuestionResult, type Resolution, type
 import { AppError } from './errors.js';
 function invalid(message: string): never { throw new AppError('UNSUPPORTED_EXAM', message); }
 const round = (value: number) => Math.round((value + Number.EPSILON) * 10000) / 10000;
+// Reading a figure is a grading concern; only mapping uncertainty can change
+// whether a whole response is active or which optional alternative it belongs to.
+const selectionUncertain = (answer: Transcription['answers'][number]) => answer.uncertainties.some(u => u.scope === 'mapping' && u.impact === 'potentially_score_changing');
+const informationalFragment = (answer: Transcription['answers'][number]) => !answer.unsupportedContent && !answer.withdrawn && answer.uncertainties.length > 0 && answer.uncertainties.every(u => u.impact === 'non_material');
 export function activeAnswers(transcription: Transcription, exam: Exam) {
-  return exam.optionalQuestions ? transcription.answers.filter(a => !(a.withdrawn && a.withdrawalEvidence?.trim() && !a.uncertainties.some(u => u.impact === 'potentially_score_changing'))) : transcription.answers;
+  return exam.optionalQuestions ? transcription.answers.filter(a => !(a.withdrawn && a.withdrawalEvidence?.trim() && !selectionUncertain(a))) : transcription.answers;
 }
 export function validateSelectionRules(exam: Exam) {
   const groups = exam.selectionGroups ?? [];
@@ -35,9 +39,23 @@ export function applyOptionalSelection(results: QuestionResult[], exam: Exam, tr
   const withdrawn = new Set(transcription.answers.filter(a => !activeIds.has(a.entryId)).map(a => a.entryId));
   for (const group of exam.selectionGroups!) {
     const mappings = resolution.mappings.filter(m => !withdrawn.has(m.entryId));
-    const ambiguous = !transcription.allPagesRead || mappings.some(m => m.questionId === null && (!m.candidateQuestionIds.length || m.candidateQuestionIds.some(id => group.questionIds.includes(id))))
-      || transcription.answers.some(a => a.withdrawn && !withdrawn.has(a.entryId) && mappings.some(m => m.entryId === a.entryId && (m.questionId ? group.questionIds.includes(m.questionId) : true)));
     const attempted = group.questionIds.filter(id => mappings.some(m => m.questionId === id));
+    const reasons: string[] = [];
+    // Incomplete coverage makes the award provisional (grading retains that
+    // flag), but does not discard marks for the visible, established attempts.
+    for (const mapping of mappings) {
+      const answer = transcription.answers.find(a => a.entryId === mapping.entryId)!;
+      const relevant = mapping.questionId ? group.questionIds.includes(mapping.questionId) : !mapping.candidateQuestionIds.length || mapping.candidateQuestionIds.some(id => group.questionIds.includes(id));
+      if (!relevant) continue;
+      if (selectionUncertain(answer)) reasons.push(`Entry ${mapping.entryId} has unresolved question-association or whole-answer cancellation evidence.`);
+      if (mapping.questionId === null && !informationalFragment(answer)) {
+        // A continuation of an already attempted question can affect its grade,
+        // but cannot introduce a competing optional alternative.
+        const couldAddAlternative = !mapping.candidateQuestionIds.length || mapping.candidateQuestionIds.some(id => group.questionIds.includes(id) && !attempted.includes(id));
+        if (couldAddAlternative) reasons.push(`Unmapped entry ${mapping.entryId} could be an additional answer${mapping.candidateQuestionIds.length ? ` (${mapping.candidateQuestionIds.join(', ')})` : ' with no established question candidates'}.`);
+      }
+    }
+    const ambiguous = reasons.length > 0;
     const over = attempted.length > group.requiredCount;
     const pending = ambiguous || (over && group.excessPolicy === 'review');
     // Page order takes precedence; preserved entry order breaks ties on a page.
@@ -45,7 +63,7 @@ export function applyOptionalSelection(results: QuestionResult[], exam: Exam, tr
     const counted = pending ? [] : over ? [...attempted].sort((a, b) => order(a) - order(b)).slice(0, group.requiredCount) : attempted;
     for (const result of results.filter(r => group.questionIds.includes(r.identifier))) {
       result.selectionStatus = pending ? 'pending_selection' : counted.includes(result.identifier) ? 'counted' : 'not_selected';
-      result.selectionNote = pending ? ambiguous ? 'Section selection requires review because page coverage, answer mapping or cancellation is unresolved.' : `More than ${group.requiredCount} answers were attempted without a printed rule choosing which count. No highest-score or first-answer policy was assumed.` : result.selectionStatus === 'counted' ? 'Counted toward this section.' : 'Optional alternative not selected — no deduction for this question.';
+      result.selectionNote = pending ? ambiguous ? [...new Set(reasons)].join(' ') : `More than ${group.requiredCount} answers were attempted without a printed rule choosing which count. No highest-score or first-answer policy was assumed.` : result.selectionStatus === 'counted' ? !transcription.allPagesRead ? 'Counted toward the provisional total from the visible answers. Incomplete page coverage still requires review.' : 'Counted toward this section.' : 'Optional alternative not selected — no deduction for this question.';
       if (result.selectionStatus === 'not_selected' && result.status === 'unattempted') { result.missingPoints = []; result.justification = result.selectionNote; }
     }
   }

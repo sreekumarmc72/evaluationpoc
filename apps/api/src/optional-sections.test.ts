@@ -13,11 +13,71 @@ function evaluate(t: Transcription, exam = optionalExamFixture(), scores: Record
   if (candidates) for (const mapping of resolution.mappings) if (mapping.questionId === null) mapping.candidateQuestionIds = candidates;
   const grading: Grading = { results: exam.questions.map(q => {
     const source = active.filter(a => a.identifier === q.identifier); const marks = source.length ? scores[q.identifier] ?? q.maximumMarks : 0;
-    return { identifier: q.identifier, maximumMarks: q.maximumMarks, marks, status: source.length ? 'graded' : 'unattempted', justification: 'Assessed independently.', correctPoints: [], missingPoints: [], reviewFlags: [], notes: [], uncertaintyDecisions: [], criterionAwards: [{ criterionId: 'answer', marks, evidence: source.length ? 'Visible answer' : '', reason: 'Rubric assessment', sourceEntryIds: source.map(a => a.entryId) }] };
+    return { identifier: q.identifier, maximumMarks: q.maximumMarks, marks, status: source.length ? 'graded' : 'unattempted', justification: 'Assessed independently.', correctPoints: [], missingPoints: [], reviewFlags: [], notes: [], uncertaintyDecisions: source.flatMap(a => a.uncertainties.map(u => ({ uncertaintyId: u.id, affectsMarks: false, reason: 'The visible final work establishes the award.' }))), criterionAwards: [{ criterionId: 'answer', marks, evidence: source.length ? 'Visible answer' : '', reason: 'Rubric assessment', sourceEntryIds: source.map(a => a.entryId) }] };
   }), warnings: [] };
   return validateGrading(grading, exam, applyResolution(t, resolution), resolution, t);
 }
 describe('Optional sections', () => {
+  it('counts Q1=5 and Q3=7 despite assessed non-material reading notes and an informational fragment', () => {
+    const t = answers(['1', '3', '4', '6', null]);
+    for (const [index, scope] of ['crossed_out', 'final_answer', 'presentation', 'presentation', 'crossed_out'].entries()) {
+      t.answers[index].uncertainties = [{ id: `note-${index}`, description: 'A corrected word does not change the final answer or its question association.', sourcePages: [1], scope: scope as 'crossed_out' | 'final_answer' | 'presentation', impact: 'non_material' }];
+    }
+    const scored = evaluate(t, undefined, { '1': 5, '3': 7 });
+    expect(scored.totals).toMatchObject({ totalMarks: 42, pendingQuestions: [] });
+    expect(scored.totals.sectionResults?.[0]).toMatchObject({ totalMarks: 12, countedQuestionIds: ['1', '3'], reviewFlags: [] });
+    expect(scored.results.filter(r => ['1', '3'].includes(r.identifier)).every(r => r.selectionStatus === 'counted' && r.reviewFlags.length === 0)).toBe(true);
+  });
+  it('does not turn an uncertain amount into a selection blocker', () => {
+    const t = answers(['1', '3', '4', '6']);
+    t.answers[0].uncertainties = [{ id: 'amount', description: 'An amount needs grading assessment, not question selection.', sourcePages: [1], scope: 'final_answer', impact: 'potentially_score_changing' }];
+    expect(evaluate(t).totals.sectionResults?.[0].countedQuestionIds).toEqual(['1', '3']);
+  });
+  it('excludes a clearly cancelled whole answer even if its old figures are hard to read', () => {
+    const t = answers(['1', '2', '3', '4', '6']);
+    t.answers[1].withdrawn = true; t.answers[1].withdrawalEvidence = 'Entire answer 2 cancelled on page 1.';
+    t.answers[1].uncertainties = [{ id: 'old-amount', description: 'Old cancelled amount unreadable.', sourcePages: [1], scope: 'final_answer', impact: 'potentially_score_changing' }];
+    expect(evaluate(t, undefined, { '1': 5, '3': 7 }).totals.sectionResults?.[0].totalMarks).toBe(12);
+    expect(t.answers[1].withdrawn).toBe(true);
+  });
+  it('keeps uncertain whole-answer cancellation pending and gives a specific entry reason', () => {
+    const t = answers(['1', '3', '4', '6']);
+    t.answers[0].uncertainties = [{ id: 'cancel', description: 'Possibly the whole answer is cancelled.', sourcePages: [1], scope: 'mapping', impact: 'potentially_score_changing' }];
+    const scored = evaluate(t);
+    expect(scored.totals.sectionResults?.[0].totalMarks).toBeNull();
+    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/entry-1.*cancellation/);
+    expect(scored.totals.sectionResults?.[1].totalMarks).toBe(30);
+  });
+  it('includes visible awards in the provisional total despite incomplete coverage', () => {
+    const t = answers(['1', '3', '4', '6']); t.allPagesRead = false;
+    const scored = evaluate(t, undefined, { '1': 9, '3': 7 });
+    expect(scored.totals).toMatchObject({ totalMarks: null, provisionalTotal: 46 });
+    expect(scored.totals.sectionResults?.[0]).toMatchObject({ totalMarks: null, provisionalTotal: 16, countedQuestionIds: ['1', '3'], reviewFlags: [] });
+    expect(scored.results.find(r => r.identifier === '1')).toMatchObject({ selectionStatus: 'counted', provisionalMarks: 9, status: 'needs_review' });
+    expect(scored.results.find(r => r.identifier === '1')?.reviewFlags).toContain('Not all answer-sheet pages could be read.');
+    expect(scored.results.find(r => r.identifier === '1')?.selectionNote).toMatch(/Counted toward the provisional total/);
+  });
+  it('does not use incomplete coverage to count too many optional answers', () => {
+    const t = answers(['1', '2', '3', '4', '6']); t.allPagesRead = false;
+    const scored = evaluate(t);
+    expect(scored.totals.provisionalTotal).toBeNull();
+    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/More than 2/);
+  });
+  it('does not dismiss unsupported unmapped content merely because its reading note is non-material', () => {
+    const t = answers(['1', '3', '4', '6', null]);
+    t.answers[4].unsupportedContent = true;
+    t.answers[4].uncertainties = [{ id: 'diagram', description: 'Label lettering is uncertain.', sourcePages: [1], scope: 'presentation', impact: 'non_material' }];
+    const scored = evaluate(t, undefined, {}, ['2']);
+    expect(scored.totals.sectionResults?.[0].reviewFlags[0]).toMatch(/entry-5.*additional answer.*2/);
+    expect(scored.totals.sectionResults?.[1].totalMarks).toBe(30);
+  });
+  it('does not make an ambiguous continuation of existing answers a section-selection problem', () => {
+    const scored = evaluate(answers(['1', '3', '4', '6', null]), undefined, {}, ['1', '3']);
+    expect(scored.totals.sectionResults?.[0].countedQuestionIds).toEqual(['1', '3']);
+    expect(scored.totals.sectionResults?.[0].reviewFlags).toEqual([]);
+    // The association can still affect individual grades, which remain reviewable.
+    expect(scored.results.find(r => r.identifier === '1')?.status).toBe('needs_review');
+  });
   it('scores two answers per section out of 50, not the 75 available marks', () => {
     const scored = evaluate(answers(['1', '3', '4', '6']));
     expect(scored.totals).toMatchObject({ maximumMarks: 50, totalMarks: 50, percentage: 100, pendingQuestions: [] });
