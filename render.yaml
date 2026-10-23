@@ -23,8 +23,8 @@ services:
       - key: MODEL_TIMEOUT_MS
         value: '180000'
       - key: MAX_FILE_MB
-        value: '10'
+        value: '30'
       - key: MAX_PDF_PAGES
-        value: '10'
+        value: '50'
       - key: RETENTION_MS
         value: '3600000'

@@ -58,3 +58,9 @@ Hosted faculty pages, exam catalog and saved history require the shared faculty 
 - https://render.com/docs/free
 - https://render.com/docs/disks
 - https://render.com/pricing
+
+## PDF upload limits
+
+All three document types (question paper, answer key and answer sheet) share a per-file limit of 50 pages and 30 MB (31,457,280 bytes). Set `MAX_PDF_PAGES=50` and `MAX_FILE_MB=30` in Render Environment and save/redeploy. Existing environment values override code defaults; updating Git alone does not replace manually configured values. The same validation is used for faculty creation/retry, student uploads and the original POC. Verify `/api/health` reports `limits.maxPages=50` and `limits.maxFileBytes=31457280`. Keep `DATA_DIR` and the disk unchanged.
+
+Upload acceptance does not guarantee a 50-page script will complete AI processing within existing timeout or model capacity. No AI benchmark or timeout change is included. The existing one-active-job restriction remains in place.

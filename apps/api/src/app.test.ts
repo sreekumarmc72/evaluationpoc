@@ -25,6 +25,18 @@ async function finished(app: ReturnType<typeof createApp>, id: string) {
 beforeEach(async () => { root = await mkdtemp(path.join(tmpdir(), 'evaluation-test-')); store = new RunStore(root, 3600000); const doc = await PDFDocument.create(); doc.addPage(); pdf = Buffer.from(await doc.save()); });
 afterEach(async () => { await store.dispose(); });
 describe('Evaluation API', () => {
+  it('accepts three 50-page PDFs and advertises the configured 30 MB limit', async () => {
+    const model = fakeModel(); const transcription = transcriptionFixture();
+    transcription.pagesRead = Array.from({ length: 50 }, (_, i) => i + 1);
+    vi.mocked(model.transcribe).mockResolvedValue({ value: transcription, usage });
+    const app = createApp({ store, model, modelId: 'test-sol', configured: true, maxBytes: 30 * 1024 * 1024, maxPages: 50, retentionMs: 3600000 });
+    const doc = await PDFDocument.create(); for (let i = 0; i < 50; i++) doc.addPage();
+    const document = Buffer.from(await doc.save());
+    const response = await request(app).post('/api/evaluations').attach('questionPaper', document, 'paper.pdf').attach('answerKey', document, 'key.pdf').attach('answerSheet', document, 'sheet.pdf');
+    expect(response.status).toBe(202);
+    expect((await finished(app, response.body.id)).stage).toBe('completed');
+    expect((await request(app).get('/api/health')).body.limits).toEqual({ maxFileBytes: 31457280, maxPages: 50 });
+  });
   it('serves all production pages and assets without exposing API fallbacks or local documents', async () => {
     const webRoot = path.join(root, 'web');
     await mkdir(path.join(webRoot, 'assets'), { recursive: true });

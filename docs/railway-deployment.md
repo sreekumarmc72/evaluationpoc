@@ -21,8 +21,8 @@
 | `OPENAI_MODEL` | `gpt-6.1-sol`, or the configured model you have access to |
 | `DATA_DIR` | `/data` |
 | `MODEL_TIMEOUT_MS` | `180000` |
-| `MAX_FILE_MB` | `10` |
-| `MAX_PDF_PAGES` | `10` |
+| `MAX_FILE_MB` | `30` |
+| `MAX_PDF_PAGES` | `50` |
 | `RETENTION_MS` | `3600000` |
 
 The image already sets `NODE_ENV=production` and `HOST=0.0.0.0`. Railway supplies `PORT`. Leave replicas at one and disable automatic sleep/serverless mode for reliable in-process evaluations; continuous uptime consumes credit.

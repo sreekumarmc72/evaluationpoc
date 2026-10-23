@@ -15,6 +15,6 @@ export const config = {
   facultyDisplayName: process.env.FACULTY_DISPLAY_NAME?.trim() || '',
   requireFacultyAuth: process.env.NODE_ENV === 'production',
   appOrigin: process.env.APP_ORIGIN?.trim() || process.env.RENDER_EXTERNAL_URL?.trim() || (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : ''),
-  maxBytes: positive('MAX_FILE_MB', 10) * 1024 * 1024,
-  maxPages: positive('MAX_PDF_PAGES', 10), retentionMs: positive('RETENTION_MS', 3600000),
+  maxBytes: positive('MAX_FILE_MB', 30) * 1024 * 1024,
+  maxPages: positive('MAX_PDF_PAGES', 50), retentionMs: positive('RETENTION_MS', 3600000),
 };

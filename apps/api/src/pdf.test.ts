@@ -3,6 +3,15 @@ import { PDFDocument } from 'pdf-lib';
 import { validatePdf } from './pdf.js';
 export async function makePdf(pages = 1) { const doc = await PDFDocument.create(); for (let i = 0; i < pages; i++) doc.addPage(); return Buffer.from(await doc.save({ addDefaultPage: false })); }
 describe('PDF validation', () => {
+  it.each(['questionPaper', 'answerKey', 'answerSheet'])('accepts 50 pages and rejects 51 for %s', async field => {
+    expect(await validatePdf(await makePdf(50), field, 30 * 1024 * 1024, 50)).toBe(50);
+    await expect(validatePdf(await makePdf(51), field, 30 * 1024 * 1024, 50)).rejects.toThrow(/51 pages; the limit is 50/);
+  });
+  it('accepts a PDF at the exact 30 MB boundary and rejects one extra byte', async () => {
+    const bytes = Buffer.alloc(30 * 1024 * 1024, 32); (await makePdf()).copy(bytes);
+    expect(await validatePdf(bytes, 'answerSheet', bytes.length, 50)).toBe(1);
+    await expect(validatePdf(Buffer.concat([bytes, Buffer.from(' ')]), 'answerSheet', bytes.length, 50)).rejects.toThrow(/exceeds the 30 MB limit/);
+  });
   it('accepts a genuine PDF regardless of its filename', async () => { expect(await validatePdf(await makePdf(), 'File', 100000, 10)).toBe(1); });
   it('rejects empty, disguised, corrupt, oversized and zero-page PDFs', async () => {
     for (const bytes of [Buffer.alloc(0), Buffer.from('not a PDF'), Buffer.from('%PDF-1.7 garbage'), await makePdf(0)]) await expect(validatePdf(bytes, 'File', 100000, 10)).rejects.toThrow();
