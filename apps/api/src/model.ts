@@ -7,6 +7,7 @@ import { validateExam } from './validation.js';
 import { extractionPrompt, transcriptionPrompt, gradingPrompt, resolutionPrompt } from './prompts.js';
 import { AppError } from './errors.js';
 import { activeAnswers } from './optional-sections.js';
+import { modelContext, requestContext, diagnostic, newClientRequestId, type TaskRecord } from './model-diagnostics.js';
 
 export type ModelResponse = { value: unknown; usage: Usage; examReused?: boolean };
 export interface EvaluationModel {
@@ -30,7 +31,7 @@ export function createStageRoutedModel(reading: EvaluationModel, grading: Evalua
 const pdf = (filename: string, bytes: Buffer) => ({ type: 'input_file' as const, filename, file_data: `data:application/pdf;base64,${bytes.toString('base64')}`, detail: 'high' as const });
 export class OpenAIModel implements EvaluationModel {
   private examCache = new Map<string, { exam: Exam; expires: number }>();
-  constructor(private client: OpenAI, private model: string, private options: { parallelGrading?: boolean; gradingConcurrency?: number; serviceTier?: 'ultrafast'; examStorage?: { get(key: string): Promise<Exam | null>; set(key: string, exam: Exam): Promise<void> } } = {}) {}
+  constructor(private client: OpenAI, private model: string, private options: { storeResponses?: boolean; parallelGrading?: boolean; gradingConcurrency?: number; serviceTier?: 'ultrafast'; examStorage?: { get(key: string): Promise<Exam | null>; set(key: string, exam: Exam): Promise<void> } } = {}) {}
   get stageModels() { return Object.fromEntries(['extracting_exam', 'transcribing', 'resolving_answers', 'evaluating'].map(stage => [stage, this.model])); }
   clearExamCache() { this.examCache.clear(); }
   withServiceTier(serviceTier: 'ultrafast') {
@@ -41,20 +42,58 @@ export class OpenAIModel implements EvaluationModel {
     return model;
   }
   private async call(schema: z.ZodTypeAny, name: string, instructions: string, content: Array<ReturnType<typeof pdf> | { type: 'input_text'; text: string }>): Promise<ModelResponse> {
-    const response = await this.client.responses.create({
-      model: this.model, store: false, instructions, input: [{ role: 'user', content }],
+    const format = zodTextFormat(schema, name);
+    const key = createHash('sha256').update(JSON.stringify({ model: this.model, tier: this.options.serviceTier, instructions, content, format })).digest('hex');
+    const context = modelContext.getStore();
+    const prior = await context?.load(key);
+    const questionIds = name === 'grading' ? JSON.parse((content[0] as { text: string }).text).exam.questions.map((q: { identifier: string }) => q.identifier) : [];
+    return requestContext.run({ clientRequestId: prior?.clientRequestId ?? newClientRequestId(), task: name, questionIds }, async () => {
+      const start = Date.now();
+      let record: TaskRecord = prior ?? { clientRequestId: requestContext.getStore()!.clientRequestId, outcome: 'started', updatedAt: new Date().toISOString() };
+      try {
+      diagnostic('model_task_started', { model: this.model, storeResponses: this.options.storeResponses === true, previousOutcome: prior?.outcome });
+      let response = prior?.response as OpenAI.Responses.Response | undefined;
+      if (response && response.status !== 'completed') response = undefined;
+      if (!response && prior?.responseId) {
+        diagnostic('model_response_retrieving', { responseId: prior.responseId });
+        response = await this.client.responses.retrieve(prior.responseId);
+        if (response.status === 'failed' || response.status === 'cancelled' || response.status === 'incomplete') {
+          diagnostic('model_response_terminal', { responseId: prior.responseId, status: response.status }); response = undefined;
+        } else if (response.status !== 'completed') throw new AppError('MODEL_PENDING', 'The stored AI response is still processing. Retry recovery later; no duplicate request was sent.', 409);
+      }
+      if (response) diagnostic('model_response_reused', { responseId: response.id });
+      if (!response) {
+      // Explicit retry gets a fresh client ID. The old attempt remains traceable
+      // in Render logs; this identifier is correlation, not an idempotency key.
+      record = { clientRequestId: newClientRequestId(), outcome: 'started', updatedAt: new Date().toISOString(), task: name, questionIds, model: this.model }; requestContext.getStore()!.clientRequestId = record.clientRequestId;
+      await context?.save(key, record);
+      response = await this.client.responses.create({
+      model: this.model, store: this.options.storeResponses === true, instructions, input: [{ role: 'user', content }],
+      ...(context ? { metadata: { submission_id: context.runId, ...(context.examId ? { exam_id: context.examId } : {}), stage: name, question_ids: questionIds.join(',').slice(0, 512) } } : {}),
       // The installed SDK's tier union predates the documented Ultrafast tier.
       // Send the official wire value; do not substitute a model or service tier.
       ...(this.options.serviceTier ? { service_tier: this.options.serviceTier as OpenAI.Responses.ResponseCreateParamsNonStreaming['service_tier'] } : {}),
-      text: { format: zodTextFormat(schema, name) },
-    });
+      text: { format },
+    }, { headers: { 'X-Client-Request-Id': record.clientRequestId } });
+      }
+    record = { ...record, responseId: response.id, response, outcome: 'received', updatedAt: new Date().toISOString() };
+    await context?.save(key, record);
     if (response.output.some(item => item.type === 'message' && item.content.some(part => part.type === 'refusal'))) throw new AppError('MODEL_REFUSAL', 'The model refused this request. Inspect the input documents before retrying.');
     if (response.status !== 'completed') throw new AppError('MODEL_INCOMPLETE', 'The model response was incomplete. Try a smaller PDF or check model limits.');
     let value: unknown;
     try { value = JSON.parse(response.output_text); }
     catch { throw new AppError('INVALID_MODEL_RESULT', 'The model did not return valid structured JSON.'); }
     if (!schema.safeParse(value).success) throw new AppError('INVALID_MODEL_RESULT', 'The model response did not match the expected schema.');
-    return { value, usage: { inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0, totalTokens: response.usage?.total_tokens ?? 0 } };
+    const usage = { inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0, totalTokens: response.usage?.total_tokens ?? 0 };
+    diagnostic('model_task_completed', { model: this.model, responseId: response.id, requestId: (response as OpenAI.Responses.Response & { _request_id?: string })._request_id, durationMs: Date.now() - start, usage });
+    return { value, usage };
+      } catch (error) {
+        const outcome = error instanceof OpenAI.APIError && error.status !== undefined ? 'failed' : 'unknown';
+        if (record.outcome !== 'received') await context?.save(key, { ...record, outcome, updatedAt: new Date().toISOString() });
+        diagnostic('model_task_failed', { model: this.model, durationMs: Date.now() - start, outcome: record.outcome === 'received' ? 'received_unusable' : outcome, responseId: record.responseId, errorType: error instanceof Error ? error.name : 'UnknownError', errorCode: error instanceof AppError ? error.code : undefined, httpStatus: error instanceof OpenAI.APIError ? error.status : undefined, requestId: error instanceof OpenAI.APIError ? error.requestID : undefined });
+        throw error;
+      }
+    });
   }
   async extract(questionPaper: Buffer, answerKey: Buffer) {
     const fingerprint = createHash('sha256').update(createHash('sha256').update(questionPaper).digest()).update(createHash('sha256').update(answerKey).digest()).update(this.model).update(extractionPrompt).digest('hex');

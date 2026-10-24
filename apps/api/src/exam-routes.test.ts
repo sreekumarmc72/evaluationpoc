@@ -28,6 +28,31 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('keeps private task checkpoints and known usage across restart without adding them to public reports', async () => {
+    const model = fakeModel(); let app = appFor(model); const created = await create(app); await prepared(app, created.body.id);
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(app, submitted.body.id);
+    const key = 'a'.repeat(64); const record = { clientRequestId: 'client-local', responseId: 'resp-local', outcome: 'received', response: { output_text: 'private response', usage: { input_tokens: 2, output_tokens: 3, total_tokens: 5 } } };
+    await store.saveModelTask(submitted.body.id, key, record);
+    await store.dispose(); store = new RunStore(path.join(root, 'restart'), 3600000, path.join(root, 'submissions')); await store.initialize(); app = appFor(model);
+    expect(await store.readModelTask(submitted.body.id, key)).toEqual(record);
+    expect(await store.knownModelUsage(submitted.body.id)).toEqual({ inputTokens: 2, outputTokens: 3, totalTokens: 5 });
+    expect(JSON.stringify((await request(app).get(`/api/evaluations/${submitted.body.id}`)).body)).not.toContain('private response');
+    expect((await request(app).get(`/api/evaluations/${submitted.body.id}/task-${key}.json`)).status).toBe(404);
+  });
+  it('requires confirmation and resumes a failed submission using its original saved model', async () => {
+    const model = fakeModel(); const app = appFor(model); const created = await create(app); await prepared(app, created.body.id);
+    vi.mocked(model.grade).mockRejectedValueOnce(new AppError('MODEL_TIMEOUT', 'Timed out', 504));
+    const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
+    const failed = await finished(app, submitted.body.id); expect(failed.stage).toBe('failed'); expect(failed.recoveryAvailable).toBe(true);
+    const endpoint = `/api/exams/${created.body.id}/submissions/${submitted.body.id}/retry`;
+    expect((await request(app).post(endpoint).send({})).status).toBe(400);
+    await catalog.updateModel(created.body.id, 'sol-ultrafast');
+    const retry = await request(app).post(endpoint).send({ acknowledgeUnknownOutcome: true });
+    expect(retry.status).toBe(202); expect(retry.body.model).toBe('gpt-6.1-sol');
+    expect((await finished(app, submitted.body.id)).stage).toBe('completed');
+    expect((await request(app).post(endpoint).send({ acknowledgeUnknownOutcome: true })).status).toBe(409);
+    expect((await request(app).get(`/api/exams/${created.body.id}/submissions`)).body.total).toBe(1);
+  });
   it('prepares all optional rubrics, evaluates sheet-only selections out of 50 and retains that denominator after review and restart', async () => {
     const model = fakeModel(); const optional = optionalExamFixture();
     vi.mocked(model.extract).mockResolvedValue({ value: optional, usage });
@@ -168,6 +193,7 @@ describe('Faculty and student exam API', () => {
     const cookie = submitted.headers['set-cookie'][0].split(';')[0];
     expect(submitted.headers['set-cookie'][0]).toContain('HttpOnly'); expect(submitted.headers['set-cookie'][0]).toContain('SameSite=Strict');
     const runUrl = `/api/evaluations/${submitted.body.id}`;
+    expect((await request(app).post(`/api/exams/${created.body.id}/submissions/${submitted.body.id}/retry`).set('Cookie', cookie).send({ acknowledgeUnknownOutcome: true })).status).toBe(401);
     expect((await request(app).get(runUrl)).status).toBe(401);
     expect((await request(app).get(`${runUrl}/answer-sheet`)).status).toBe(401);
     expect((await request(app).get(runUrl).set('Cookie', cookie)).body.stage).toBe('completed');

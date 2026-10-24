@@ -100,6 +100,8 @@ export const UsageSchema = z.object({ inputTokens: z.number(), outputTokens: z.n
 export const RunErrorSchema = z.object({ code: z.string(), message: z.string(), stage: z.enum(stages) });
 export const ManualStudentNameSchema = z.object({ name: z.string().trim().min(1).max(160), updatedAt: z.number() });
 export const RunSchema = z.object({
+  recoveryAvailable: z.boolean().optional(),
+  recoveryVersion: z.string().optional(),
   manualStudentName: ManualStudentNameSchema.optional(),
   durable: z.boolean().optional(),
   id: z.string(), stage: z.enum(stages), createdAt: z.number(), finishedAt: z.number().nullable(),

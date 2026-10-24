@@ -6,8 +6,14 @@ function positive(name: string, fallback: number) {
   if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer.`);
   return value;
 }
+function boolean(name: string, fallback: boolean) {
+  const value = process.env[name]; if (value === undefined) return fallback;
+  if (value !== 'true' && value !== 'false') throw new Error(`${name} must be true or false.`);
+  return value === 'true';
+}
 export const config = {
   apiKey: process.env.OPENAI_API_KEY?.trim() ?? '', model: process.env.OPENAI_MODEL?.trim() ?? '',
+  storeResponses: boolean('OPENAI_STORE_RESPONSES', false),
   port: positive('PORT', 3001), timeout: positive('MODEL_TIMEOUT_MS', 180000),
   host: process.env.HOST?.trim() || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1'),
   dataDir: process.env.DATA_DIR?.trim() || '',

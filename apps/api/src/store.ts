@@ -55,7 +55,7 @@ export class RunStore {
       finally { await unlink(temporary).catch(() => {}); }
     });
     this.writes.set(run.id, work);
-    try { await work; } catch { throw new AppError('STORAGE_FAILURE', 'Could not save the submission to disk. Its result has not been safely saved. Contact the faculty to check available storage.', 507); }
+    try { await work; } catch (error) { console.error(JSON.stringify({ event: 'submission_checkpoint_failed', runId: run.id, filesystemCode: (error as NodeJS.ErrnoException).code, syscall: (error as NodeJS.ErrnoException).syscall })); throw new AppError('STORAGE_FAILURE', 'Could not save the submission to disk. Its result has not been safely saved. Contact the faculty to check available storage.', 507); }
     finally { if (this.writes.get(run.id) === work) this.writes.delete(run.id); }
   }
   list(examId: string) {
@@ -117,6 +117,31 @@ export class RunStore {
     return run;
   }
   read(id: string, field: UploadField) { return readFile(path.join(this.directory(id), `${field}.pdf`)); }
+  async readModelTask(id: string, key: string) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid task key');
+    try { return JSON.parse(await readFile(path.join(this.directory(id), `task-${key}.json`), 'utf8')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  }
+  async saveModelTask(id: string, key: string, value: unknown) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid task key');
+    const target = path.join(this.directory(id), `task-${key}.json`); const temporary = `${target}.${randomUUID()}.tmp`;
+    try { await writeFile(temporary, JSON.stringify(value), { flag: 'wx' }); await rename(temporary, target); }
+    catch { throw new AppError('STORAGE_FAILURE', 'Could not save the AI recovery checkpoint. Contact the faculty before retrying.', 507); }
+    finally { await unlink(temporary).catch(() => {}); }
+  }
+  async knownModelUsage(id: string) {
+    const files = (await readdir(this.directory(id))).filter(file => /^task-[a-f0-9]{64}\.json$/.test(file));
+    if (!files.length) return null;
+    const usage = { inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+    for (const file of files) {
+      const record = JSON.parse(await readFile(path.join(this.directory(id), file), 'utf8'));
+      const value = record.response?.usage;
+      if (value && [value.input_tokens, value.output_tokens, value.total_tokens].every(n => Number.isSafeInteger(n) && n >= 0)) {
+        usage.inputTokens += value.input_tokens; usage.outputTokens += value.output_tokens; usage.totalTokens += value.total_tokens;
+      }
+    }
+    return usage;
+  }
   async remove(id: string) {
     const run = this.entries.get(id);
     if (!run) throw new AppError('NOT_FOUND', 'Evaluation not found. It may have expired or the server restarted. Upload again.', 404);

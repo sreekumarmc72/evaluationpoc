@@ -10,6 +10,7 @@ import { AppError, publicError } from './errors.js';
 import { validatePdf } from './pdf.js';
 import { validateExam } from './validation.js';
 import { processRun } from './pipeline.js';
+import { recoveryVersion, modelContext } from './model-diagnostics.js';
 
 type Options = { examCatalog: ExamCatalog; store: RunStore; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; appOrigin?: string };
 const tierSchema = z.enum(['gpt-6.1-sol', 'sol-ultrafast']);
@@ -27,7 +28,7 @@ export function registerExamRoutes(app: Express, options: Options) {
         if (createHash('sha256').update(buffer).digest('hex') !== entry.metadata.documents[field].sha256) throw new AppError('CHANGED_EXAM_DOCUMENT', 'Saved exam documents changed unexpectedly. Create a new exam with the intended files.');
         return buffer;
       }));
-      const response = await model.extract(files[0], files[1]); const exam = validateExam(response.value);
+      const response = await modelContext.run({ runId: `preparation:${id}`, examId: id, load: async () => null, save: async () => {} }, () => model.extract(files[0], files[1])); const exam = validateExam(response.value);
       if (exam.questions.some(q => !q.rubric?.length)) throw new AppError('INVALID_MODEL_RESULT', 'Every prepared question requires a validated marking rubric. Retry preparation.');
       await catalog.ready(id, exam, response.usage, Date.now() - start);
     } catch (error) { const safe = publicError(error); await catalog.failed(id, { code: safe.code, message: safe.message }, Date.now() - start); }
@@ -36,6 +37,26 @@ export function registerExamRoutes(app: Express, options: Options) {
   app.get('/api/exams', (_req, res) => res.json({ exams: catalog.list().map(exam => ({ ...exam, submissionCount: store.list(exam.id).length })) }));
   app.get('/api/exams/:id/student', (req, res, next) => { try { res.json({ metadata: catalog.get(req.params.id).metadata }); } catch (error) { next(error); } });
   app.get('/api/exams/:id', (req, res, next) => { try { res.json(catalog.get(req.params.id)); } catch (error) { next(error); } });
+  app.post('/api/exams/:id/submissions/:runId/retry', express.json({ limit: '1kb' }), (req, res, next) => {
+    let reserved = false;
+    void (async () => { try {
+      const input = z.object({ acknowledgeUnknownOutcome: z.literal(true) }).strict().safeParse(req.body);
+      if (!input.success) throw new AppError('CONFIRMATION_REQUIRED', 'Confirm that a retry may repeat an AI request whose previous outcome is unknown and incur additional cost.', 400);
+      const run = store.get(req.params.runId);
+      if (!run || run.examId !== req.params.id || !run.exam) throw new AppError('NOT_FOUND', 'Saved submission not found.', 404);
+      if (run.stage !== 'failed' || !run.recoveryAvailable) throw new AppError('RECOVERY_UNAVAILABLE', 'Only failed submissions recorded with recovery checkpoints can be resumed.', 409);
+      if (run.recoveryVersion !== recoveryVersion) throw new AppError('RECOVERY_UNAVAILABLE', 'This submission used a different application version. Preserve its report and submit a new evaluation instead of mixing policies.', 409);
+      if (!['MODEL_TIMEOUT', 'MODEL_CONNECTION', 'MODEL_UNAVAILABLE', 'MODEL_RATE_LIMIT', 'MODEL_PENDING', 'MODEL_INCOMPLETE', 'PROCESSING_INTERRUPTED'].includes(run.error?.code ?? '')) throw new AppError('RECOVERY_UNAVAILABLE', 'This failure requires correction before it can be retried.', 409);
+      const model = selectModel(run.model);
+      store.reserve(); reserved = true;
+      const sheet = await store.read(run.id, 'answerSheet');
+      const pages = await validatePdf(sheet, 'answerSheet', options.maxBytes, options.maxPages);
+      const nextRun = { ...run, stage: 'validating' as const, error: null, finishedAt: null };
+      await store.checkpoint(nextRun); Object.assign(run, nextRun);
+      res.status(202).json(run);
+      reserved = false; void processRun(run, store, model, pages, run.exam!);
+    } catch (error) { if (reserved) store.release(); next(error); } })();
+  });
   app.get('/api/exams/:id/submissions', (req, res, next) => { try {
     catalog.get(req.params.id);
     const all = store.list(req.params.id).filter(item => `${item.studentName ?? ''} ${item.id}`.toLowerCase().includes(String(req.query.search ?? '').toLowerCase().slice(0, 160)));
