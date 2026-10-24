@@ -1,0 +1,24 @@
+.recovery-control {
+  display: grid;
+  gap: 14px;
+  margin-block: 16px;
+}
+.recovery-control > p { margin: 0; }
+.recovery-control .recovery-confirmation {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  line-height: 1.5;
+}
+.recovery-control .recovery-confirmation input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+}
+.recovery-control > button {
+  justify-self: start;
+  max-width: 100%;
+  margin: 0;
+}
