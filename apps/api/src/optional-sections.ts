@@ -1,5 +1,6 @@
 import { examMaximumMarks, type Exam, type QuestionResult, type Resolution, type Transcription, type Totals } from '@poc/shared';
 import { AppError } from './errors.js';
+import { validateBlueprintExam } from './blueprint.js';
 function invalid(message: string): never { throw new AppError('UNSUPPORTED_EXAM', message); }
 const round = (value: number) => Math.round((value + Number.EPSILON) * 10000) / 10000;
 // Reading a figure is a grading concern; only mapping uncertainty can change
@@ -10,6 +11,7 @@ export function activeAnswers(transcription: Transcription, exam: Exam) {
   return exam.optionalQuestions ? transcription.answers.filter(a => !(a.withdrawn && a.withdrawalEvidence?.trim() && !selectionUncertain(a))) : transcription.answers;
 }
 export function validateSelectionRules(exam: Exam) {
+  if (exam.blueprint) { validateBlueprintExam(exam); return; }
   const groups = exam.selectionGroups ?? [];
   if (!exam.optionalQuestions) { if (groups.length) invalid('Compulsory exams cannot contain optional selection groups.'); return; }
   if (!groups.length) invalid('Optional questions require explicit, supported answer-any-N section rules.');

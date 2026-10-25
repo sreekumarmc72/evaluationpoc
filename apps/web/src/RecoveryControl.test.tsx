@@ -7,6 +7,10 @@ import { RecoveryControl } from './RecoveryControl';
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const failed = { id: 'run', examId: 'exam', recoveryAvailable: true, stage: 'failed', error: { code: 'MODEL_TIMEOUT' } } as EvaluationRun;
 describe('Faculty recovery', () => {
+  it('offers explicitly confirmed recovery for a bounded reading-quality failure', () => {
+    render(<RecoveryControl run={{ ...failed, error: { code: 'READING_QUALITY', message: 'Page 2 needs review', stage: 'transcribing' } }} onUpdate={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Retry evaluation' })).toBeDisabled(); fireEvent.click(screen.getByRole('checkbox')); expect(screen.getByRole('button', { name: 'Retry evaluation' })).toBeEnabled();
+  });
   it('requires acknowledgement, reports network errors and keeps the report intact', async () => {
     const fetch = vi.fn().mockRejectedValue(new Error('Network unavailable')); vi.stubGlobal('fetch', fetch); const onUpdate = vi.fn();
     render(<RecoveryControl run={failed} onUpdate={onUpdate} />);

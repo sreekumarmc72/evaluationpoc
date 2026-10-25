@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { randomUUID } from 'node:crypto';
 
-export type TaskRecord = { clientRequestId: string; responseId?: string; response?: unknown; outcome: 'started' | 'received' | 'unknown' | 'failed'; updatedAt: string; task?: string; questionIds?: string[]; model?: string };
-type Context = { runId: string; examId?: string; load(key: string): Promise<TaskRecord | null>; save(key: string, record: TaskRecord): Promise<void> };
+export type TaskRecord = { clientRequestId: string; responseId?: string; response?: unknown; qualityRejected?: boolean; artifact?: unknown; outcome: 'started' | 'received' | 'unknown' | 'failed'; updatedAt: string; task?: string; questionIds?: string[]; model?: string };
+type Context = { runId: string; examId?: string; load(key: string): Promise<TaskRecord | null>; save(key: string, record: TaskRecord): Promise<void>; progress?(stage: string, draft?: import('@poc/shared').ExamBlueprint): Promise<void>; readingProgress?(value: import('@poc/shared').ReadingProgress): Promise<void> };
 export const modelContext = new AsyncLocalStorage<Context>();
-type RequestContext = { clientRequestId: string; task: string; questionIds: string[] };
+type RequestContext = { clientRequestId: string; task: string; questionIds: string[]; pageNumbers?: number[] };
 export const requestContext = new AsyncLocalStorage<RequestContext>();
 export const newClientRequestId = () => randomUUID();
 export const recoveryVersion = process.env.RENDER_GIT_COMMIT || 'recovery-v1';

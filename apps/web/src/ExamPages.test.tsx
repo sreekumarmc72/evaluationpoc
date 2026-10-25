@@ -24,6 +24,12 @@ function chooseExamAction(label: string, examName = 'Accounting test') {
 }
 
 describe('Student progress', () => {
+  it('shows accepted page counts and bounded-reading recovery progress', () => {
+    const run = { ...result(), stage: 'transcribing' as const, readingProgress: { phase: 'recovering' as const, pageCount: 13, completedPages: [1, 2, 3, 4], activePages: [5], label: 'Rereading page 5 of 13' } };
+    render(<StudentProgress run={run} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Rereading page 5 of 13 · 4 / 13 pages accepted');
+    expect(screen.getByRole('progressbar', { name: 'Accepted answer-sheet pages' })).toHaveAttribute('value', '4');
+  });
   it('updates elapsed seconds while processing and freezes at the completion time', () => {
     vi.useFakeTimers(); vi.setSystemTime(10000);
     const running = { ...result(), stage: 'transcribing' as const, createdAt: 5000, finishedAt: null };

@@ -2,6 +2,8 @@
 
 ## Faculty and Student pages
 
+Answer-sheet reading now uses small page-image batches, literal source readings and validated answer structuring, with bounded page/crop recovery and visible page progress. The Docker runtime includes Poppler; local development needs `pdftoppm` on PATH or `PDFTOPPM_PATH`. See [handwriting reading, checkpoints and runtime requirements](docs/handwriting-page-reading.md).
+
 New student submissions are now archived durably under their exam, including the original PDF, result, rubric snapshot, model and readable student-name evidence. Faculty can open **Submissions (N)** to inspect reports. Hosted faculty access now requires `FACULTY_USER` and `FACULTY_PASSWORD`; student access uses a submission-scoped HttpOnly cookie. See [saved submission history and rollout instructions](docs/submission-history.md) before deployment. Existing exams and links keep their format.
 
 The Nergy Vidya faculty workspace keeps a compact creation form beside a searchable exam table, with **Submissions** and a **More** menu for secondary actions. The list has a text **Refresh** button. Faculty and student headers show a profile menu with **Log out**. Faculty signs in at `/faculty/login` using the existing configured credentials; logout revokes its session. Student logout leaves the public exam view without clearing saved results or submission recovery. See [profile and session behavior](docs/profile-sessions.md). On desktop, the exam list scrolls within its panel; smaller screens stack the panels. Rubric details remain in a keyboard-accessible modal.
@@ -22,6 +24,7 @@ New endpoints:
 | `POST /api/exams` | Multipart `name`, optional `model`, `questionPaper`, `answerKey`; return `202` and exam ID |
 | `GET /api/exams` | List exam metadata and readiness |
 | `GET /api/exams/:id` | Metadata and prepared specification |
+| `GET /api/exams/:id/blueprint` | Faculty-only validated preparation draft, when available |
 | `POST /api/exams/:id/prepare` | Retry a failed preparation |
 | `PATCH /api/exams/:id/model` | JSON `{ model }`; update a ready exam’s evaluation model without changing its rubric or link |
 | `GET /api/exams/:id/student` | Exam metadata only, without expected answers or the rubric |
@@ -78,7 +81,7 @@ Real scans and API credentials are not included. Anonymised scan-checked transcr
 
 - Exactly three valid, unencrypted PDFs; default maximum 30 MB and 50 pages each. These can be scanned PDFs without a text layer.
 - English short/descriptive answers and mathematical working. Use clear printed question numbers, preferably `1`, `2(a)`, `2(b)`. Every scored leaf question needs marks in the paper and an answer in the key.
-- Compulsory questions and flat, disjoint equal-mark “answer any N” sections are supported. Optional section maxima use the required quota rather than all available alternatives. Excess answers require review unless the paper explicitly says to count the first answers in script order. Nested OR choices, unequal-mark or overlapping options, unsupported selection policies and diagram grading remain unsupported. See [optional section rules](docs/optional-sections.md).
+New exam preparations use a paper-only scoring blueprint, followed by complete answer-key mapping and batched rubrics. Compulsory papers, flat answer-any-N sections, whole-parent selection and one internal Either/Or level are supported. Parent totals are combined before outer selection; provisional awards count and the approved highest-score fallback applies unless the paper requires first-in-script. Unsupported nesting, unequal-mark/overlapping choices, missing keys and contradictory rules still stop preparation. Existing prepared exams keep their saved rules and rubric. See [blueprint preparation and scoring](docs/exam-blueprints.md) and [legacy optional-section rules](docs/optional-sections.md).
 - Missing keys, missing marks, conflicts or ambiguous exam structure stop evaluation. The model is instructed to report these; automated extraction is not guaranteed to discover every conflict.
 - Equivalent wording can earn partial credit. Supplied rubrics take precedence; keys without detailed rubrics use explicitly labelled inferred holistic grading.
 - Handwriting transcription sees **only** the answer sheet. A conditional resolution call sees that scan, question texts and raw transcription, with no key, marks or calibration examples. Grading sees the extracted exam, mapped transcription and auditable verified readings.

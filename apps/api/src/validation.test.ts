@@ -1,8 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { validateExam, validateTranscription, validateGrading, directResolution, applyResolution } from './validation.js';
+import { validateExam, validateTranscription, validateGrading, directResolution, applyResolution, validateResolution } from './validation.js';
 import { examFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
 
 describe('Exam and transcription integrity', () => {
+  it('retains blank mapping references as unresolved without guessing a scored question', () => {
+    const t = transcriptionFixture(); const exam = examFixture(); const resolution = directResolution(t, exam);
+    resolution.mappings[0] = { ...resolution.mappings[0], questionId: '', candidateQuestionIds: ['1', '2(a)'], evidence: 'An ambiguous fragment could belong to either question.' };
+    const result = validateResolution(resolution, t, exam); expect(result.mappings[0].questionId).toBeNull(); expect(result.mappings[0].candidateQuestionIds).toEqual(['1', '2(a)']); expect(result.warnings.join(' ')).toContain('unresolved');
+    resolution.mappings[0].questionId = 'unknown'; expect(() => validateResolution(resolution, t, exam)).toThrow();
+  });
+  it('retains established numeric credit when an extra fragment has an ambiguous association', () => {
+    const exam = examFixture(); const t = transcriptionFixture(); t.answers.push({ ...t.answers[0], entryId: 'entry-3', identifier: null, text: 'Unlabelled margin working' });
+    const resolution = directResolution(t, exam); resolution.mappings[2] = { entryId: 'entry-3', questionId: null, candidateQuestionIds: ['1'], evidence: 'Margin position is inconclusive.' };
+    const value = validateGrading(gradingFixture(), exam, t, resolution);
+    expect(value.results[0]).toMatchObject({ marks: null, provisionalMarks: 2, status: 'needs_review' }); expect(value.totals.provisionalTotal).toBe(5);
+  });
   const sectionedExam = () => {
     const exam = examFixture();
     exam.questions = [10, 10, 15, 15].map((marks, index) => ({ ...exam.questions[0], identifier: `${index < 2 ? 'A' : 'B'}-${index % 2 + 1}`, maximumMarks: marks }));

@@ -11,6 +11,8 @@ import type { EvaluationModel } from './model.js';
 import { examFixture, optionalExamFixture, transcriptionFixture, gradingFixture } from './test-fixtures.js';
 import { directResolution } from './validation.js';
 import { AppError } from './errors.js';
+import { frExam, frBlueprint } from './blueprint-fixtures.js';
+import { modelContext } from './model-diagnostics.js';
 
 const usage = { inputTokens: 10, outputTokens: 5, totalTokens: 15 };
 function specification() { const exam = examFixture(); for (const q of exam.questions) q.rubric = [{ id: 'answer', description: 'Answer', maximumMarks: q.maximumMarks, expectedEvidence: q.expectedAnswer, keyAlignment: 'Provided answer', allocationBasis: 'inferred' }]; return exam; }
@@ -28,6 +30,26 @@ function create(app: ReturnType<typeof appFor>, name = 'Accounting') { return re
 async function prepared(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/exams/${id}`)).body; if (value.metadata.status !== 'preparing') return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Preparation did not finish'); }
 async function finished(app: ReturnType<typeof appFor>, id: string) { for (let i = 0; i < 100; i++) { const value = (await request(app).get(`/api/evaluations/${id}`)).body; if (['completed', 'failed'].includes(value.stage)) return value; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error('Evaluation did not finish'); }
 describe('Faculty and student exam API', () => {
+  it('persists the versioned blueprint, private draft and preparation tasks without exposing the key to students', async () => {
+    const model = fakeModel();
+    vi.mocked(model.extract).mockImplementation(async () => {
+      await modelContext.getStore()!.progress!('mapping_key', frBlueprint());
+      await modelContext.getStore()!.save('a'.repeat(64), { clientRequestId: 'prep-test', outcome: 'received', updatedAt: 'now' });
+      return { value: frExam(), usage };
+    });
+    const app = appFor(model); const created = await create(app, 'Financial reporting'); const ready = await prepared(app, created.body.id);
+    expect(ready.metadata.maximumMarks).toBe(100); expect(ready.specification.blueprint.version).toBe(2);
+    expect((await request(app).get(`/api/exams/${created.body.id}/blueprint`)).body.blueprint.maximumMarks).toBe(100);
+    const student = await request(app).get(`/api/exams/${created.body.id}/student`);
+    expect(student.body.metadata.maximumMarks).toBe(100); expect(JSON.stringify(student.body)).not.toContain('expectedAnswer');
+    const reopened = new ExamCatalog(path.join(root, 'exams')); await reopened.initialize();
+    expect(reopened.get(created.body.id).specification?.blueprint?.version).toBe(2);
+    expect((await reopened.preparationDraft(created.body.id))?.maximumMarks).toBe(100);
+    expect((await reopened.loadPreparationTask(created.body.id, 'a'.repeat(64))).clientRequestId).toBe('prep-test');
+    await expect(reopened.loadPreparationTask(created.body.id, '../metadata')).rejects.toThrow();
+    const secured = createApp({ store, examCatalog: reopened, model, modelId: 'gpt-6.1-sol', configured: true, maxBytes: 100000, maxPages: 10, retentionMs: 3600000, facultyPassword: 'test-blueprint-password', requireFacultyAuth: true });
+    expect((await request(secured).get(`/api/exams/${created.body.id}/blueprint`)).status).toBe(401);
+  });
   it('keeps private task checkpoints and known usage across restart without adding them to public reports', async () => {
     const model = fakeModel(); let app = appFor(model); const created = await create(app); await prepared(app, created.body.id);
     const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf'); await finished(app, submitted.body.id);
@@ -39,9 +61,10 @@ describe('Faculty and student exam API', () => {
     expect(JSON.stringify((await request(app).get(`/api/evaluations/${submitted.body.id}`)).body)).not.toContain('private response');
     expect((await request(app).get(`/api/evaluations/${submitted.body.id}/task-${key}.json`)).status).toBe(404);
   });
-  it('requires confirmation and resumes a failed submission using its original saved model', async () => {
+  it.each(['MODEL_TIMEOUT', 'READING_QUALITY'])('requires confirmation and resumes a %s submission using its original saved model', async code => {
     const model = fakeModel(); const app = appFor(model); const created = await create(app); await prepared(app, created.body.id);
-    vi.mocked(model.grade).mockRejectedValueOnce(new AppError('MODEL_TIMEOUT', 'Timed out', 504));
+    if (code === 'READING_QUALITY') vi.mocked(model.transcribe).mockRejectedValueOnce(new AppError(code, 'Reading needs recovery'));
+    else vi.mocked(model.grade).mockRejectedValueOnce(new AppError(code, 'Timed out', 504));
     const submitted = await request(app).post(`/api/exams/${created.body.id}/evaluations`).attach('answerSheet', pdf, 'sheet.pdf');
     const failed = await finished(app, submitted.body.id); expect(failed.stage).toBe('failed'); expect(failed.recoveryAvailable).toBe(true);
     const endpoint = `/api/exams/${created.body.id}/submissions/${submitted.body.id}/retry`;

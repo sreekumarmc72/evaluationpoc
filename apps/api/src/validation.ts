@@ -1,6 +1,7 @@
 import { ExamSchema, examMaximumMarks, TranscriptionSchema, ResolutionSchema, GradingSchema, type Exam, type Transcription, type Resolution, type QuestionResult, type Totals } from '@poc/shared';
 import { AppError } from './errors.js';
 import { validateSelectionRules, applyOptionalSelection, optionalTotals, activeAnswers } from './optional-sections.js';
+import { blueprintTotals } from './blueprint.js';
 
 const fail = (message: string): never => { throw new AppError('INVALID_MODEL_RESULT', message); };
 export function validateExam(value: unknown): Exam {
@@ -23,7 +24,7 @@ export function validateExam(value: unknown): Exam {
   }
   const total = examMaximumMarks(exam);
   if (!Number.isFinite(total)) return fail('The maximum mark total is invalid.');
-  validateMarksEvidence(exam, total);
+  if (!exam.blueprint) validateMarksEvidence(exam, total);
   return exam;
 }
 function validateMarksEvidence(exam: Exam, total: number) {
@@ -131,6 +132,11 @@ export function validateResolution(value: unknown, t: Transcription, exam: Exam)
   const seen = new Set<string>();
   if (resolution.mappings.length !== entries.size) return fail('Resolution must include every transcription entry exactly once.');
   for (const m of resolution.mappings) {
+    // Empty/null strings are never valid question IDs. Conservatively retain
+    // these associations as unresolved; never guess an established target.
+    if (m.questionId !== null && (!m.questionId.trim() || m.questionId.trim().toLowerCase() === 'null')) {
+      m.questionId = null; resolution.warnings.push(`Entry ${m.entryId}: an empty question reference was retained as an unresolved association.`);
+    }
     if (!entries.has(m.entryId) || seen.has(m.entryId) || !m.evidence.trim()) return fail('Resolution contains duplicate, unknown or unsupported entries.');
     seen.add(m.entryId);
     if (new Set(m.candidateQuestionIds).size !== m.candidateQuestionIds.length || m.candidateQuestionIds.some(id => !ids.has(id))) return fail('Resolution candidates contain invalid question IDs.');
@@ -231,17 +237,21 @@ export function validateGrading(value: unknown, exam: Exam, transcription: Trans
     if (!uncertainties.length && answers.some(a => a.uncertaintyNotes.length)) flags.push(...answers.flatMap(a => a.uncertaintyNotes));
     if (answers.some(a => a.unsupportedContent)) flags.push('Answer contains unsupported content such as a diagram.');
     if (answers.some(a => /\[illegible\]/i.test(a.text) && !a.uncertainties.length)) flags.push('Answer contains unassessed illegible text.');
-    if (flags.length) return { ...r, provisionalMarks: ambiguousMapping ? null : r.marks ?? r.provisionalMarks, status: 'needs_review' as const, marks: null, reviewFlags: [...new Set([...r.reviewFlags, ...flags])] };
+    // Review of an additional fragment does not erase awards already supported
+    // by established sources. The fragment itself still earns no mapped credit.
+    if (flags.length) return { ...r, provisionalMarks: r.marks ?? r.provisionalMarks, status: 'needs_review' as const, marks: null, reviewFlags: [...new Set([...r.reviewFlags, ...flags])] };
     if (!answers.length && unresolved.some(m => !m.candidateQuestionIds.length)) return { ...r, status: 'needs_review' as const, marks: null, reviewFlags: [...r.reviewFlags, 'Unmapped content prevents establishing that this question was unattempted.'] };
     if (!answers.length) return { ...r, status: 'unattempted' as const, marks: 0, justification: 'No answer for this question was found in the complete, unambiguously mapped transcription.', correctPoints: [], missingPoints: ['Question not attempted.'], reviewFlags: [] };
     if (r.status === 'unattempted') return { ...r, status: 'needs_review' as const, marks: null, reviewFlags: [...r.reviewFlags, 'The model classified an existing answer as unattempted; its proposed score was withheld.'] };
     if (r.status === 'needs_review' && !r.reviewFlags.length) r.reviewFlags.push('The model could not provide a reliable score. Review the answer and justification.');
     return r;
   });
+  if (exam.blueprint) return { results, warnings: grading.warnings, totals: blueprintTotals(results, exam, transcription, resolution) };
   applyOptionalSelection(results, exam, transcription, resolution);
   return { results, warnings: grading.warnings, totals: calculateTotals(results, exam) };
 }
 export function calculateTotals(results: QuestionResult[], exam?: Exam | null): Totals {
+  if (exam?.blueprint) return blueprintTotals(results, exam);
   if (exam?.optionalQuestions) return optionalTotals(results, exam);
   const effective = (r: QuestionResult) => r.teacherAdjustment?.marks ?? r.marks;
   const pendingQuestions = results.filter(r => effective(r) === null).map(r => r.identifier);

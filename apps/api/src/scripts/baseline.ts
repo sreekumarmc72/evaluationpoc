@@ -62,7 +62,7 @@ try {
   if (reference.isolatedGrading && reference.cases.some(c => !c.referenceTranscription)) throw new Error('Isolated grading requires checked referenceTranscription for every case.');
   const load = async (file: string) => { const buffer = await readFile(path.resolve(base, file)); const pages = await validatePdf(buffer, file, config.maxBytes, config.maxPages); return { buffer, pages }; };
   const paper = await load(reference.questionPaper); const key = await load(reference.answerKey);
-  const model = new OpenAIModel(new OpenAI({ apiKey: config.apiKey, timeout: config.timeout, maxRetries: 2 }), config.model);
+  const model = new OpenAIModel(new OpenAI({ apiKey: config.apiKey, timeout: config.timeout, maxRetries: 2 }), config.model, { pageReading: true, blueprintPreparation: true });
   const output = path.resolve(process.argv[3] ?? 'baseline-output'); await mkdir(output, { recursive: true });
   const reports: any[] = [];
   const save = () => writeFile(path.join(output, 'report.json'), JSON.stringify({ pipelineVersion: 'concise-grading-v1', model: reference.gradingComparisonOnly ? 'gpt-6.1-sol' : config.model, extractionModel: reference.gradingComparisonOnly ? 'gpt-6-luna' : config.model, policyVersion: reference.policyVersion ?? null, answerKeySha256: createHash('sha256').update(key.buffer).digest('hex'), provenance: reference.provenance, createdAt: new Date().toISOString(), reports }, null, 2));

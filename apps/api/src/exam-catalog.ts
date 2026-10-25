@@ -1,7 +1,7 @@
 import { randomUUID, createHash } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename, readdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { PreparedExamSchema, examMaximumMarks, type PreparedExam, type Exam, type Usage } from '@poc/shared';
+import { PreparedExamSchema, BlueprintSchema, examMaximumMarks, type PreparedExam, type Exam, type ExamBlueprint, type Usage } from '@poc/shared';
 import { validateExam } from './validation.js';
 import { AppError } from './errors.js';
 
@@ -91,14 +91,35 @@ export class ExamCatalog {
   }
   async ready(id: string, specification: Exam, usage: Usage, durationMs: number) {
     const exam = this.validateSpecification(specification); const entry = this.get(id);
-    if (exam.optionalQuestions) {
+    if (exam.blueprint) {
+      entry.metadata.selectionInstructions = exam.blueprint.nodes.filter(n => n.kind === 'choose').map(n => ({ sectionId: n.label, instructions: n.instructions, requiredCount: n.requiredCount!, availableCount: n.children.length, maximumMarks: n.maximumMarks }));
+    } else if (exam.optionalQuestions) {
       const grouped = new Set(exam.selectionGroups!.flatMap(group => group.questionIds));
       entry.metadata.requiredQuestionCount = exam.selectionGroups!.reduce((sum, group) => sum + group.requiredCount, 0) + exam.questions.filter(q => !grouped.has(q.identifier)).length;
       entry.metadata.selectionInstructions = exam.selectionGroups!.map(group => ({ sectionId: group.id, instructions: group.instructions, requiredCount: group.requiredCount, availableCount: group.questionIds.length, maximumMarks: group.maximumMarks }));
     }
     await this.write(id, 'specification.json', exam);
-    Object.assign(entry.metadata, { status: 'ready', finishedAt: Date.now(), questionCount: exam.questions.length, maximumMarks: examMaximumMarks(exam), usage, durationMs, warnings: exam.warnings, error: null });
+    Object.assign(entry.metadata, { status: 'ready', preparationStage: 'Ready', finishedAt: Date.now(), questionCount: exam.questions.length, maximumMarks: examMaximumMarks(exam), usage, durationMs, warnings: exam.warnings, error: null });
     await this.write(id, 'metadata.json', entry.metadata); entry.specification = exam; this.entries.set(id, entry);
+  }
+  async preparationProgress(id: string, stage: string, draft?: ExamBlueprint) {
+    const entry = this.get(id); entry.metadata.preparationStage = stage;
+    if (draft) await this.write(id, 'blueprint-draft.json', BlueprintSchema.parse(draft));
+    await this.write(id, 'metadata.json', entry.metadata); this.entries.set(id, entry);
+  }
+  async preparationDraft(id: string) {
+    this.get(id);
+    try { return BlueprintSchema.parse(JSON.parse(await readFile(path.join(this.directory(id), 'blueprint-draft.json'), 'utf8'))); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  }
+  async loadPreparationTask(id: string, key: string) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid preparation task');
+    try { return JSON.parse(await readFile(path.join(this.directory(id), `preparation-${key}.json`), 'utf8')); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null; throw error; }
+  }
+  async savePreparationTask(id: string, key: string, value: unknown) {
+    if (!/^[a-f0-9]{64}$/.test(key)) throw new Error('Invalid preparation task');
+    await this.write(id, `preparation-${key}.json`, value);
   }
   async failed(id: string, error: { code: string; message: string }, durationMs: number) {
     const entry = this.get(id); Object.assign(entry.metadata, { status: 'failed', finishedAt: Date.now(), error, durationMs });

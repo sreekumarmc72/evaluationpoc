@@ -6,7 +6,7 @@ Preparation accepts flat, non-overlapping groups of equal-mark whole questions w
 
 The Cost Accounting paper has Part A questions 1–3, any two at 10 marks (20), and Part B questions 4–6, any two at 15 (30). It therefore has six available questions, four required answers and a 50-mark maximum, rather than 75. Public metadata exposes only selection instructions/counts, without the answer key.
 
-Nested OR choices, overlapping groups, unequal-mark alternatives, selecting subparts, contradictory quotas and unsupported excess-answer instructions remain preparation blockers. A missing key for an optional alternative is still a blocker: it cannot be silently dropped or solved by the model.
+For stored version 1 specifications, nested OR choices, overlapping groups, unequal-mark alternatives, selecting subparts, contradictory quotas and unsupported excess-answer instructions remain preparation blockers. New preparations use the [version 2 blueprint](exam-blueprints.md), which supports whole-parent selection with one internal Either/Or level. A missing key for an optional alternative is still a blocker: it cannot be silently dropped or solved by the model.
 
 ## Selection and grading
 

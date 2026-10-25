@@ -12,13 +12,20 @@ export async function processRun(run: EvaluationRun, store: RunStore, model: Eva
 }
 async function processInContext(run: EvaluationRun, store: RunStore, model: EvaluationModel, answerPageCount: number, preparedExam?: Exam) {
   let failure: ReturnType<typeof publicError> | null = null;
+  let pendingUpdate = Promise.resolve();
   const update = async (progress: Partial<EvaluationRun>) => {
-    const next = { ...run, ...structuredClone(progress) };
+    const snapshot = structuredClone(progress);
+    const persist = async () => {
+    const next = { ...run, ...snapshot };
     if (next.stage !== run.stage) diagnostic('stage_changed', { from: run.stage, stage: next.stage });
     if (next.stage === 'completed') next.finishedAt = Date.now();
     await store.checkpoint(next);
     Object.assign(run, next);
+    };
+    const result = pendingUpdate.then(persist); pendingUpdate = result.catch(() => {}); await result;
   };
+  const context = modelContext.getStore();
+  if (context) context.readingProgress = progress => update({ readingProgress: progress });
   try {
     if (preparedExam) {
       await evaluatePreparedExam(model, preparedExam, await store.read(run.id, 'answerSheet'), answerPageCount, update);

@@ -1,3 +1,6 @@
+import { prepareBlueprint, blueprintPolicy } from './blueprint-preparation.js';
+import { readAnswerPages, ReadingQualityError, type ReadingContent } from './page-reading.js';
+import type { PageRenderer } from './page-renderer.js';
 import OpenAI from 'openai';
 import { zodTextFormat } from 'openai/helpers/zod';
 import { z } from 'zod';
@@ -31,7 +34,7 @@ export function createStageRoutedModel(reading: EvaluationModel, grading: Evalua
 const pdf = (filename: string, bytes: Buffer) => ({ type: 'input_file' as const, filename, file_data: `data:application/pdf;base64,${bytes.toString('base64')}`, detail: 'high' as const });
 export class OpenAIModel implements EvaluationModel {
   private examCache = new Map<string, { exam: Exam; expires: number }>();
-  constructor(private client: OpenAI, private model: string, private options: { storeResponses?: boolean; parallelGrading?: boolean; gradingConcurrency?: number; serviceTier?: 'ultrafast'; examStorage?: { get(key: string): Promise<Exam | null>; set(key: string, exam: Exam): Promise<void> } } = {}) {}
+  constructor(private client: OpenAI, private model: string, private options: { pageReading?: boolean; pageRenderer?: (pdf: Buffer) => Promise<PageRenderer>; blueprintPreparation?: boolean; storeResponses?: boolean; parallelGrading?: boolean; gradingConcurrency?: number; serviceTier?: 'ultrafast'; examStorage?: { get(key: string): Promise<Exam | null>; set(key: string, exam: Exam): Promise<void> } } = {}) {}
   get stageModels() { return Object.fromEntries(['extracting_exam', 'transcribing', 'resolving_answers', 'evaluating'].map(stage => [stage, this.model])); }
   clearExamCache() { this.examCache.clear(); }
   withServiceTier(serviceTier: 'ultrafast') {
@@ -41,20 +44,22 @@ export class OpenAIModel implements EvaluationModel {
     model.examCache = this.examCache;
     return model;
   }
-  private async call(schema: z.ZodTypeAny, name: string, instructions: string, content: Array<ReturnType<typeof pdf> | { type: 'input_text'; text: string }>): Promise<ModelResponse> {
+  private async call(schema: z.ZodTypeAny, name: string, instructions: string, content: Array<ReturnType<typeof pdf> | ReadingContent>, validate?: (value: unknown) => void): Promise<ModelResponse> {
     const format = zodTextFormat(schema, name);
     const key = createHash('sha256').update(JSON.stringify({ model: this.model, tier: this.options.serviceTier, instructions, content, format })).digest('hex');
     const context = modelContext.getStore();
     const prior = await context?.load(key);
-    const questionIds = name === 'grading' ? JSON.parse((content[0] as { text: string }).text).exam.questions.map((q: { identifier: string }) => q.identifier) : [];
-    return requestContext.run({ clientRequestId: prior?.clientRequestId ?? newClientRequestId(), task: name, questionIds }, async () => {
+    const questionIds = name === 'grading' ? JSON.parse((content[0] as { text: string }).text).exam.questions.map((q: { identifier: string }) => q.identifier) : name === 'blueprint_rubrics' ? JSON.parse((content[0] as { text: string }).text).questions.map((q: { identifier: string }) => q.identifier) : [];
+    const readingInput = name.startsWith('page_') ? JSON.parse((content[0] as { text: string }).text) : undefined;
+    const pageNumbers: number[] | undefined = readingInput?.originalPages ?? readingInput?.pages?.map((p: { page: number }) => p.page);
+    return requestContext.run({ clientRequestId: prior?.clientRequestId ?? newClientRequestId(), task: name, questionIds, ...(pageNumbers ? { pageNumbers } : {}) }, async () => {
       const start = Date.now();
       let record: TaskRecord = prior ?? { clientRequestId: requestContext.getStore()!.clientRequestId, outcome: 'started', updatedAt: new Date().toISOString() };
       try {
       diagnostic('model_task_started', { model: this.model, storeResponses: this.options.storeResponses === true, previousOutcome: prior?.outcome });
-      let response = prior?.response as OpenAI.Responses.Response | undefined;
+      let response = (prior?.qualityRejected ? undefined : prior?.response) as OpenAI.Responses.Response | undefined;
       if (response && response.status !== 'completed') response = undefined;
-      if (!response && prior?.responseId) {
+      if (!response && prior?.responseId && !prior.qualityRejected) {
         diagnostic('model_response_retrieving', { responseId: prior.responseId });
         response = await this.client.responses.retrieve(prior.responseId);
         if (response.status === 'failed' || response.status === 'cancelled' || response.status === 'incomplete') {
@@ -63,13 +68,20 @@ export class OpenAIModel implements EvaluationModel {
       }
       if (response) diagnostic('model_response_reused', { responseId: response.id });
       if (!response) {
+      if (prior?.qualityRejected && prior.response) {
+        // Preserve a known-bad response before an explicit recovery replaces the
+        // active task record. Usage reconciliation counts each saved response.
+        const archive = createHash('sha256').update(`${key}:rejected:${prior.responseId ?? prior.clientRequestId}`).digest('hex');
+        await context?.save(archive, prior);
+      }
       // Explicit retry gets a fresh client ID. The old attempt remains traceable
       // in Render logs; this identifier is correlation, not an idempotency key.
       record = { clientRequestId: newClientRequestId(), outcome: 'started', updatedAt: new Date().toISOString(), task: name, questionIds, model: this.model }; requestContext.getStore()!.clientRequestId = record.clientRequestId;
       await context?.save(key, record);
       response = await this.client.responses.create({
       model: this.model, store: this.options.storeResponses === true, instructions, input: [{ role: 'user', content }],
-      ...(context ? { metadata: { submission_id: context.runId, ...(context.examId ? { exam_id: context.examId } : {}), stage: name, question_ids: questionIds.join(',').slice(0, 512) } } : {}),
+      ...(context ? { metadata: { submission_id: context.runId, ...(context.examId ? { exam_id: context.examId } : {}), stage: name, question_ids: questionIds.join(',').slice(0, 512), ...(pageNumbers ? { source_pages: pageNumbers.join(',') } : {}) } } : {}),
+      ...(validate ? { max_output_tokens: 24000 } : {}),
       // The installed SDK's tier union predates the documented Ultrafast tier.
       // Send the official wire value; do not substitute a model or service tier.
       ...(this.options.serviceTier ? { service_tier: this.options.serviceTier as OpenAI.Responses.ResponseCreateParamsNonStreaming['service_tier'] } : {}),
@@ -79,15 +91,21 @@ export class OpenAIModel implements EvaluationModel {
     record = { ...record, responseId: response.id, response, outcome: 'received', updatedAt: new Date().toISOString() };
     await context?.save(key, record);
     if (response.output.some(item => item.type === 'message' && item.content.some(part => part.type === 'refusal'))) throw new AppError('MODEL_REFUSAL', 'The model refused this request. Inspect the input documents before retrying.');
-    if (response.status !== 'completed') throw new AppError('MODEL_INCOMPLETE', 'The model response was incomplete. Try a smaller PDF or check model limits.');
+    if (response.status !== 'completed') { if (validate) throw new ReadingQualityError('The page response was incomplete. Smaller-page recovery is required.'); throw new AppError('MODEL_INCOMPLETE', 'The model response was incomplete. Try a smaller PDF or check model limits.'); }
     let value: unknown;
     try { value = JSON.parse(response.output_text); }
-    catch { throw new AppError('INVALID_MODEL_RESULT', 'The model did not return valid structured JSON.'); }
-    if (!schema.safeParse(value).success) throw new AppError('INVALID_MODEL_RESULT', 'The model response did not match the expected schema.');
+    catch { if (validate) throw new ReadingQualityError('The reading response was not valid JSON.'); throw new AppError('INVALID_MODEL_RESULT', 'The model did not return valid structured JSON.'); }
+    if (!schema.safeParse(value).success) { if (validate) throw new ReadingQualityError('The reading response did not match the requested page schema.', value); throw new AppError('INVALID_MODEL_RESULT', 'The model response did not match the expected schema.'); }
+    validate?.(value);
     const usage = { inputTokens: response.usage?.input_tokens ?? 0, outputTokens: response.usage?.output_tokens ?? 0, totalTokens: response.usage?.total_tokens ?? 0 };
     diagnostic('model_task_completed', { model: this.model, responseId: response.id, requestId: (response as OpenAI.Responses.Response & { _request_id?: string })._request_id, durationMs: Date.now() - start, usage });
     return { value, usage };
       } catch (error) {
+        if (error instanceof ReadingQualityError && record.outcome === 'received') {
+          record = { ...record, qualityRejected: true }; await context?.save(key, record);
+          const u = (record.response as OpenAI.Responses.Response | undefined)?.usage;
+          error.usage = { inputTokens: u?.input_tokens ?? 0, outputTokens: u?.output_tokens ?? 0, totalTokens: u?.total_tokens ?? 0 };
+        }
         const outcome = error instanceof OpenAI.APIError && error.status !== undefined ? 'failed' : 'unknown';
         if (record.outcome !== 'received') await context?.save(key, { ...record, outcome, updatedAt: new Date().toISOString() });
         diagnostic('model_task_failed', { model: this.model, durationMs: Date.now() - start, outcome: record.outcome === 'received' ? 'received_unusable' : outcome, responseId: record.responseId, errorType: error instanceof Error ? error.name : 'UnknownError', errorCode: error instanceof AppError ? error.code : undefined, httpStatus: error instanceof OpenAI.APIError ? error.status : undefined, requestId: error instanceof OpenAI.APIError ? error.requestID : undefined });
@@ -96,14 +114,14 @@ export class OpenAIModel implements EvaluationModel {
     });
   }
   async extract(questionPaper: Buffer, answerKey: Buffer) {
-    const fingerprint = createHash('sha256').update(createHash('sha256').update(questionPaper).digest()).update(createHash('sha256').update(answerKey).digest()).update(this.model).update(extractionPrompt).digest('hex');
+    const fingerprint = createHash('sha256').update(createHash('sha256').update(questionPaper).digest()).update(createHash('sha256').update(answerKey).digest()).update(this.model).update(this.options.blueprintPreparation ? blueprintPolicy : extractionPrompt).digest('hex');
     const cached = this.examCache.get(fingerprint);
     if (cached && cached.expires > Date.now()) return { value: structuredClone(cached.exam), examReused: true, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
     const saved = await this.options.examStorage?.get(fingerprint);
     if (saved) return { value: structuredClone(validateExam(saved)), examReused: true, usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 } };
     for (const [id, entry] of this.examCache) if (entry.expires <= Date.now()) this.examCache.delete(id);
-    const schema = ExamSchema.extend({ selectionGroups: z.array(SelectionGroupSchema), marksEvidence: MarksEvidenceSchema.nullable(), questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
-    const response = await this.call(schema, 'exam_with_rubric', extractionPrompt, [
+    const schema = ExamSchema.omit({ blueprint: true, keyMappings: true }).extend({ selectionGroups: z.array(SelectionGroupSchema), marksEvidence: MarksEvidenceSchema.nullable(), questions: z.array(QuestionSchema.extend({ rubric: z.array(RubricCriterionSchema) })) });
+    const response = this.options.blueprintPreparation ? await prepareBlueprint((...args) => this.call(...args), questionPaper, answerKey) : await this.call(schema, 'exam_with_rubric', extractionPrompt, [
       { type: 'input_text', text: 'Question paper:' }, pdf('question-paper.pdf', questionPaper),
       { type: 'input_text', text: 'Answer key:' }, pdf('answer-key.pdf', answerKey),
     ]);
@@ -114,12 +132,18 @@ export class OpenAIModel implements EvaluationModel {
     return { ...response, value: structuredClone(exam) };
   }
   transcribe(answerSheet: Buffer) {
-    return this.call(TranscriptionSchema.extend({ studentIdentity: StudentIdentitySchema, answers: z.array(AnswerSchema.extend({ withdrawn: z.boolean(), withdrawalEvidence: z.string() })) }), 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
+    if (this.options.pageReading) return readAnswerPages((...args) => this.call(...args), answerSheet, `${this.model}:${this.options.serviceTier ?? 'default'}`, this.options.pageRenderer);
+    return this.call(TranscriptionSchema.omit({ pageReadings: true }).extend({ studentIdentity: StudentIdentitySchema, answers: z.array(AnswerSchema.extend({ withdrawn: z.boolean(), withdrawalEvidence: z.string() })) }), 'transcription', transcriptionPrompt, [pdf('answer-sheet.pdf', answerSheet)]);
   }
   resolve(answerSheet: Buffer, questions: Array<{ identifier: string; text: string }>, transcription: Transcription) {
     // Project fields here as well as in the pipeline: never leak the key to reading.
     const paper = questions.map(({ identifier, text }) => ({ identifier, text }));
-    return this.call(ResolutionSchema, 'answer_resolution', resolutionPrompt, [pdf('answer-sheet.pdf', answerSheet), { type: 'input_text', text: JSON.stringify({ questions: paper, transcription }) }]);
+    const { pageReadings: _literalPages, ...readingTranscription } = transcription;
+    if (!paper.length || !transcription.answers.length) return this.call(ResolutionSchema, 'answer_resolution', resolutionPrompt, [pdf('answer-sheet.pdf', answerSheet), { type: 'input_text', text: JSON.stringify({ questions: paper, transcription: readingTranscription }) }]);
+    const ids = z.enum(paper.map(q => q.identifier) as [string, ...string[]]);
+    const entries = z.enum(transcription.answers.map(a => a.entryId) as [string, ...string[]]);
+    const schema = ResolutionSchema.extend({ mappings: z.array(ResolutionSchema.shape.mappings.element.extend({ entryId: entries, questionId: ids.nullable(), candidateQuestionIds: z.array(ids) })) });
+    return this.call(schema, 'answer_resolution', resolutionPrompt, [pdf('answer-sheet.pdf', answerSheet), { type: 'input_text', text: JSON.stringify({ questions: paper, transcription: readingTranscription }) }]);
   }
   async grade(exam: Exam, transcription: Transcription, resolution?: Resolution) {
     if (exam.optionalQuestions) transcription = { ...transcription, answers: activeAnswers(transcription, exam) };
@@ -147,11 +171,11 @@ export class OpenAIModel implements EvaluationModel {
     // uncertainty assessments. Convert to the public array contract at this boundary.
     const questions = Object.fromEntries(exam.questions.map(q => {
       const decisions = Object.fromEntries(transcription.answers.filter(a => a.identifier === q.identifier).flatMap(a => a.uncertainties).map(u => [u.id, z.object({ affectsMarks: z.boolean(), reason: z.string() }).strict()]));
-      const base = ResultSchema.omit({ selectionStatus: true, selectionNote: true, teacherAdjustment: true, marks: true, provisionalMarks: true, criterionAwards: true }).extend({ identifier: z.literal(q.identifier), maximumMarks: z.literal(q.maximumMarks), uncertaintyDecisions: z.object(decisions).strict() });
+      const base = ResultSchema.omit({ selectionStatus: true, selectionNote: true, teacherAdjustment: true, attemptEstablished: true, selectionOrder: true, selectionUncertain: true, marks: true, provisionalMarks: true, criterionAwards: true }).extend({ identifier: z.literal(q.identifier), maximumMarks: z.literal(q.maximumMarks), uncertaintyDecisions: z.object(decisions).strict() });
       return [q.identifier, q.rubric?.length ? base.extend({ criterionAwards: z.object(Object.fromEntries(q.rubric.map(c => [c.id, CriterionAwardSchema.omit({ criterionId: true }).strict()]))).strict() }).strict() : base.extend({ assessedMarks: z.number().nullable() }).strict()];
     }));
     const schema = z.object({ results: z.object(questions).strict(), warnings: z.array(z.string()) }).strict();
-    const { studentIdentity: _identity, ...gradingTranscription } = transcription;
+    const { studentIdentity: _identity, pageReadings: _literalPages, ...gradingTranscription } = transcription;
     const response = await this.call(schema, 'grading', gradingPrompt, [{ type: 'input_text', text: JSON.stringify({ exam, transcription: gradingTranscription, resolution }) }]);
     const value = schema.parse(response.value);
     const results = Object.values(value.results).map(result => {

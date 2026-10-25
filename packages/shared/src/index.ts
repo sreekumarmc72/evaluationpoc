@@ -39,7 +39,20 @@ export const SelectionGroupSchema = z.object({
   maximumMarks: z.number().positive(), instructions: z.string(), sourcePages: z.array(z.number().int().positive()),
   excessPolicy: z.enum(['review', 'first_in_script']), excessInstructions: z.string(),
 });
+export const BlueprintNodeSchema = z.object({
+  id: z.string(), label: z.string(), kind: z.enum(['score', 'all', 'choose']),
+  role: z.enum(['exam', 'section', 'question', 'subpart', 'alternative']),
+  children: z.array(z.string()), maximumMarks: z.number().positive(), requiredCount: z.number().int().positive().nullable(),
+  text: z.string(), instructions: z.string(), sourcePages: z.array(z.number().int().positive()),
+  marksSource: z.string(), excessPolicy: z.enum(['highest_scores', 'first_in_script']),
+});
+export const BlueprintSchema = z.object({ version: z.literal(2), rootId: z.string(), maximumMarks: z.number().positive(), totalSource: z.string(), nodes: z.array(BlueprintNodeSchema), issues: z.array(z.string()), warnings: z.array(z.string()) });
+export type ExamBlueprint = z.infer<typeof BlueprintSchema>;
+export type BlueprintNode = z.infer<typeof BlueprintNodeSchema>;
+export const KeyMappingSchema = z.object({ identifier: z.string(), expectedAnswer: z.string(), acceptedAlternatives: z.array(z.string()), markingCriteria: z.array(z.string()), sourcePages: z.array(z.number().int().positive()), evidence: z.string() });
 export const ExamSchema = z.object({
+  blueprint: BlueprintSchema.optional(),
+  keyMappings: z.array(KeyMappingSchema).optional(),
   selectionGroups: z.array(SelectionGroupSchema).optional(),
   policyVersion: z.string().nullable(),
   questions: z.array(QuestionSchema), optionalQuestions: z.boolean(),
@@ -62,7 +75,18 @@ export const StudentIdentitySchema = z.object({
   name: z.string().max(160).nullable(), status: z.enum(['readable', 'unclear', 'absent']),
   sourcePages: z.array(z.number().int().positive()), note: z.string().max(1000),
 });
+export const PageReadingSchema = z.object({
+  verifiedReadings: z.array(z.object({ blockId: z.string(), originalText: z.string(), revisedText: z.string(), evidence: z.string(), resolvesBlockUncertainty: z.boolean() })).optional(),
+  page: z.number().int().positive(), status: z.enum(['complete', 'blank', 'partial', 'unreadable']),
+  blocks: z.array(z.object({ id: z.string(), text: z.string(), kind: z.enum(['answer', 'administrative']),
+    box: z.object({ x0: z.number(), y0: z.number(), x1: z.number(), y1: z.number() }), uncertain: z.boolean(), note: z.string() })),
+  warnings: z.array(z.string()), studentIdentity: StudentIdentitySchema.nullable(),
+});
+export type PageReading = z.infer<typeof PageReadingSchema>;
+export const ReadingProgressSchema = z.object({ phase: z.enum(['rendering', 'reading', 'structuring', 'recovering', 'complete']), pageCount: z.number().int().positive(), completedPages: z.array(z.number().int().positive()), activePages: z.array(z.number().int().positive()), label: z.string() });
+export type ReadingProgress = z.infer<typeof ReadingProgressSchema>;
 export const TranscriptionSchema = z.object({
+  pageReadings: z.array(PageReadingSchema).optional(),
   studentIdentity: StudentIdentitySchema.optional(),
   answers: z.array(AnswerSchema), pagesRead: z.array(z.number().int()),
   allPagesRead: z.boolean(), warnings: z.array(z.string()),
@@ -73,6 +97,7 @@ export const ResolutionSchema = z.object({
   warnings: z.array(z.string()),
 });
 export const ResultSchema = z.object({
+  attemptEstablished: z.boolean().optional(), selectionOrder: z.number().nullable().optional(), selectionUncertain: z.boolean().optional(),
   selectionStatus: z.enum(['counted', 'not_selected', 'pending_selection']).optional(),
   selectionNote: z.string().optional(),
   identifier: z.string(), maximumMarks: z.number(), marks: z.number().nullable(),
@@ -86,6 +111,7 @@ export const ResultSchema = z.object({
 });
 export const GradingSchema = z.object({ results: z.array(ResultSchema), warnings: z.array(z.string()) });
 export const TotalsSchema = z.object({
+  blueprintResults: z.array(z.object({ nodeId: z.string(), label: z.string(), kind: z.enum(['score', 'all', 'choose']), maximumMarks: z.number(), marks: z.number(), provisional: z.boolean(), counted: z.boolean(), selectedChildren: z.array(z.string()), reviewFlags: z.array(z.string()) })).optional(),
   sectionResults: z.array(z.object({
     sectionId: z.string(), instructions: z.string(), requiredCount: z.number().int(), maximumMarks: z.number(),
     countedQuestionIds: z.array(z.string()), notSelectedQuestionIds: z.array(z.string()), pendingQuestionIds: z.array(z.string()),
@@ -100,6 +126,7 @@ export const UsageSchema = z.object({ inputTokens: z.number(), outputTokens: z.n
 export const RunErrorSchema = z.object({ code: z.string(), message: z.string(), stage: z.enum(stages) });
 export const ManualStudentNameSchema = z.object({ name: z.string().trim().min(1).max(160), updatedAt: z.number() });
 export const RunSchema = z.object({
+  readingProgress: ReadingProgressSchema.optional(),
   recoveryAvailable: z.boolean().optional(),
   recoveryVersion: z.string().optional(),
   manualStudentName: ManualStudentNameSchema.optional(),
@@ -116,6 +143,7 @@ export const RunSchema = z.object({
 });
 export type Exam = z.infer<typeof ExamSchema>;
 export function examMaximumMarks(exam: Exam): number {
+  if (exam.blueprint) return exam.blueprint.maximumMarks;
   if (!exam.optionalQuestions) return exam.questions.reduce((sum, q) => sum + q.maximumMarks, 0);
   const grouped = new Set(exam.selectionGroups?.flatMap(group => group.questionIds) ?? []);
   return (exam.selectionGroups ?? []).reduce((sum, group) => sum + group.maximumMarks, 0) + exam.questions.filter(q => !grouped.has(q.identifier)).reduce((sum, q) => sum + q.maximumMarks, 0);
@@ -143,6 +171,7 @@ export function displayedTotals(totals: Totals): Totals {
 export type Usage = z.infer<typeof UsageSchema>;
 
 export const PreparedExamSchema = z.object({
+  preparationStage: z.string().optional(),
   requiredQuestionCount: z.number().int().positive().optional(),
   selectionInstructions: z.array(z.object({ sectionId: z.string(), instructions: z.string(), requiredCount: z.number().int(), availableCount: z.number().int(), maximumMarks: z.number() })).optional(),
   id: z.string().uuid(), name: z.string().trim().min(1).max(120), version: z.number().int().positive(),

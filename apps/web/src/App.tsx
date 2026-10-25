@@ -33,6 +33,11 @@ function MathText({ text }: { text: string }) {
   // Raw HTML is disabled. KaTeX trust stays false for untrusted student/model text.
   return <div className="math-text"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, { trust: false, throwOnError: false }]]} disallowedElements={['a', 'img', 'script', 'iframe', 'object', 'embed']} unwrapDisallowed>{text}</ReactMarkdown></div>;
 }
+export function ReadingStatus({ run }: { run: EvaluationRun | null }) {
+  const progress = run?.readingProgress;
+  if (!progress) return null;
+  return <div className="reading-progress"><p className="muted" role="status">{progress.label} · {progress.completedPages.length} / {progress.pageCount} pages accepted</p><progress aria-label="Accepted answer-sheet pages" max={progress.pageCount} value={progress.completedPages.length} /></div>;
+}
 function MarkReview({ result, onSave }: { result: QuestionResult; onSave: (id: string, marks: number, reason: string) => Promise<void> }) {
   const [marks, setMarks] = useState(String(result.teacherAdjustment?.marks ?? result.marks ?? result.provisionalMarks ?? ''));
   const [reason, setReason] = useState(result.teacherAdjustment?.reason ?? '');
@@ -68,7 +73,7 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
     <div className="question-list">{run.results.map(result => {
       const q = run.exam?.questions.find(q => q.identifier === result.identifier);
       return <article className="question" key={result.identifier}>
-        <div className="question-top"><h3>Question {result.identifier}</h3><div className={`mark ${result.status === 'needs_review' && !result.teacherAdjustment ? 'review' : ''}`}>{result.selectionStatus === 'not_selected' ? 'Not selected' : result.teacherAdjustment ? `${number(result.teacherAdjustment.marks)} / ${number(result.maximumMarks)} · Reviewed` : result.marks !== null ? `${number(result.marks)} / ${number(result.maximumMarks)}` : result.provisionalMarks != null ? `${number(result.provisionalMarks)} / ${number(result.maximumMarks)} · Provisional` : 'Needs review'}</div></div>
+        <div className="question-top"><h3>{run.exam?.blueprint?.nodes.find(node => node.id === result.identifier)?.label ?? `Question ${result.identifier}`}</h3><div className={`mark ${result.status === 'needs_review' && !result.teacherAdjustment ? 'review' : ''}`}>{result.selectionStatus === 'not_selected' ? 'Not selected' : result.teacherAdjustment ? `${number(result.teacherAdjustment.marks)} / ${number(result.maximumMarks)} · Reviewed` : result.marks !== null ? `${number(result.marks)} / ${number(result.maximumMarks)}` : result.provisionalMarks != null ? `${number(result.provisionalMarks)} / ${number(result.maximumMarks)} · Provisional` : 'Needs review'}</div></div>
         {result.selectionStatus && <p className="muted"><strong>{result.selectionStatus === 'counted' ? 'Counted answer' : result.selectionStatus === 'not_selected' ? 'Not selected — no deduction' : 'Selection pending review'}</strong> · {result.selectionNote}</p>}
         {result.teacherAdjustment && <p className="muted">Teacher review: {result.teacherAdjustment.reason}. Original AI award: {result.marks ?? result.provisionalMarks ?? 'not assessable'}{result.marks === null && result.provisionalMarks != null ? ' (provisional)' : ''}.</p>}
         {q && <MathText text={q.text} />}
@@ -89,6 +94,7 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
       </article>;
     })}</div>
     {run.transcription && <section className="transcription"><div className="section-heading"><h2>What the model read</h2><span>Read-only transcription</span></div>
+      {!!run.transcription.pageReadings?.length && <details><summary>Original literal page readings</summary><p className="muted">Answer text is assembled from these source readings. Reading recovery responses remain in private processing checkpoints.</p>{run.transcription.pageReadings.map(page => <div key={page.page}><h4>Page {page.page} · {page.status}</h4>{page.blocks.map(block => <div key={block.id}><small className="muted">{block.id}{block.kind === 'administrative' ? ' · Administrative text' : ''}</small><MathText text={block.text} />{block.note && <p className="muted">{block.note}</p>}</div>)}{page.verifiedReadings?.map((reading, i) => <div className="notice" key={i}><strong>Visual reread · {reading.blockId}</strong><p>Original: {reading.originalText}</p><p>Reread: {reading.revisedText}</p><p>{reading.evidence}</p></div>)}</div>)}</details>}
       <p className="muted">Pages inspected: {run.transcription.pagesRead.join(', ') || 'None'} · {run.transcription.allPagesRead ? 'Complete coverage' : 'Incomplete coverage'}</p>
       {run.transcription.answers.length === 0 && <p>No written answers were found.</p>}
       {run.transcription.answers.map(answer => {
@@ -228,6 +234,7 @@ export default function App() {
       {error && <div role="alert" className="error">{error}</div>}
       {runId && <section className="progress-panel" aria-live="polite"><div className="section-heading"><h2>{run ? stageLabels[run.stage] : 'Checking PDFs'}</h2>{run && isTerminal(run.stage) && <button className="secondary" onClick={() => { void reset(); }}>Start over</button>}</div>
         <ol className="steps">{steps.map((stage, i) => { const current = run ? steps.indexOf(run.stage as typeof steps[number]) : 0; const parallel = run?.stage === 'reading_documents'; const complete = run?.stage === 'completed' || (parallel ? i === 0 : stage === 'extracting_exam' ? !!run?.exam : stage === 'transcribing' ? !!run?.transcription : current > i); return <li key={stage} className={complete ? 'done' : (parallel ? i === 1 || i === 2 : current === i) && run?.stage !== 'failed' ? 'current' : ''}><span>{complete ? '✓' : i + 1}</span>{stageLabels[stage]}</li>; })}</ol>
+        {run && ['reading_documents', 'transcribing'].includes(run.stage) && <ReadingStatus run={run} />}
         {busy && <p className="muted">Processing can take several minutes. Keep this page open.{run && <> Elapsed: {Math.max(0, Math.floor((now - run.createdAt) / 1000))}s.</>}{lastProgressCheck && <> Backend checked {Math.max(0, Math.floor((now - lastProgressCheck) / 1000))}s ago.</>}</p>}
         {run?.error && <div role="alert" className="error"><strong>Stopped during {stageLabels[run.error.stage].toLowerCase()}.</strong> {run.error.message}</div>}
         {pollError && <div role="alert" className="error">{pollError} {!runMissing && <p>Progress connection interrupted; the backend may still be evaluating. Reconnecting automatically. Reconnect checks this same run without making another model call.</p>} {!busy && <>{!runMissing && <button className="secondary" onClick={() => { pollFailures.current = 0; setBusy(true); setPollAttempt(p => p + 1); }}>Reconnect</button>}<button className="secondary" onClick={() => { setRunId(null); setRun(null); setFiles({}); setPollError(''); setError(''); setRunMissing(false); setLastProgressCheck(null); formRef.current?.reset(); }}>Return to uploads</button></>}</div>}

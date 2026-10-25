@@ -3,11 +3,11 @@ import { createPortal } from 'react-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
-import { PreparedExamSchema, RunSchema, ExamSchema, modelLabels, isTerminal, type PreparedExam, type Exam, type EvaluationRun } from '@poc/shared';
-import { Results } from './App';
+import { PreparedExamSchema, RunSchema, ExamSchema, BlueprintSchema, type ExamBlueprint, modelLabels, isTerminal, type PreparedExam, type Exam, type EvaluationRun } from '@poc/shared';
+import { Results, ReadingStatus } from './App';
 import { SubmissionHistory } from './SubmissionHistory';
 import { StudentNamePrompt } from './StudentNameEntry';
-import { ExamSelectionRules } from './OptionalSections';
+import { ExamSelectionRules, BlueprintView } from './OptionalSections';
 import { ProfileMenu } from './ProfileMenu';
 import './exam-pages.css';
 import './student-theme.css';
@@ -44,7 +44,7 @@ export function StudentProgress({ run }: { run: EvaluationRun | null }) {
         <div><strong>{step.label}</strong><small>{status}</small></div>
       </li>;
     })}
-  </ol>{elapsed !== null && <p className="muted" role="timer" aria-live="off">Elapsed: {elapsed}s.{!isTerminal(run!.stage) && ' Processing can take several minutes. Keep this page open.'}</p>}</>;
+  </ol>{run && (run.stage === 'transcribing' || failed && run.error?.stage === 'transcribing') && <ReadingStatus run={run} />}{elapsed !== null && <p className="muted" role="timer" aria-live="off">Elapsed: {elapsed}s.{!isTerminal(run!.stage) && ' Processing can take several minutes. Keep this page open.'}</p>}</>;
 }
 
 class RequestError extends Error { constructor(message: string, public status: number) { super(message); } }
@@ -90,8 +90,13 @@ function ExamMoreMenu({ exam, copied, detailLoading, onCopy, onDetails, onManage
     if (event.key === 'Tab') close();
   }}>
     {exam.status === 'ready' && <><a role="menuitem" href={`/student/${exam.id}`} target="_blank" rel="noopener noreferrer" aria-label="Open student page →" onClick={() => close(true)}>Open student page ↗</a><button role="menuitem" onClick={() => activate(onCopy)}>{copied ? 'Copied!' : 'Copy student link'}</button><button role="menuitem" disabled={detailLoading} onClick={() => activate(onDetails)}>View questions & rubric</button></>}
-    {exam.status !== 'ready' && <button role="menuitem" onClick={() => activate(onSources)}>Source files</button>}<button role="menuitem" disabled={exam.status === 'preparing'} onClick={() => activate(() => onManage('rename'))}>Edit title</button><div role="separator" /><button role="menuitem" className="menu-delete" disabled={exam.status === 'preparing'} onClick={() => activate(() => onManage('delete'))}>Delete</button>
+    {exam.status !== 'ready' && <><button role="menuitem" onClick={() => activate(onSources)}>Source files</button>{exam.preparationStage && <button role="menuitem" disabled={detailLoading} onClick={() => activate(onDetails)}>View preparation blueprint</button>}</>}<button role="menuitem" disabled={exam.status === 'preparing'} onClick={() => activate(() => onManage('rename'))}>Edit title</button><div role="separator" /><button role="menuitem" className="menu-delete" disabled={exam.status === 'preparing'} onClick={() => activate(() => onManage('delete'))}>Delete</button>
   </div>, document.body)}</>;
+}
+function DraftBlueprintModal({ blueprint, onClose }: { blueprint: ExamBlueprint; onClose(): void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const dialog = ref.current!; const previous = document.activeElement as HTMLElement | null; dialog.showModal(); return () => { dialog.close(); previous?.focus(); }; }, []);
+  return <dialog ref={ref} className="rubric-modal" aria-label="Preparation blueprint" onCancel={event => { event.preventDefault(); onClose(); }}><div className="rubric-modal-content"><div className="rubric-modal-heading"><h2>Preparation blueprint</h2><button className="secondary" onClick={onClose}>Close blueprint</button></div><div className="rubric-modal-body"><p className="notice">Structure validated. Answer-key mapping and rubrics must finish before student submissions are enabled.</p><BlueprintView blueprint={blueprint} /></div></div></dialog>;
 }
 function SourceFilesModal({ exam, onClose }: { exam: PreparedExam; onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -159,7 +164,7 @@ function ManageExamModal({ exam, action, onClose, onSaved }: { exam: PreparedExa
 }
 function ExamText({ text }: { text: string }) { return <div className="math-text"><ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[[rehypeKatex, { trust: false, throwOnError: false }]]} disallowedElements={['a', 'img', 'script', 'iframe', 'object', 'embed']} unwrapDisallowed>{text}</ReactMarkdown></div>; }
 function Specification({ exam }: { exam: Exam }) {
-  return <section aria-label="Prepared questions and rubrics"><h2>Prepared questions & marking rubric</h2><p className="muted">Inferred allocations are AI-generated, not teacher-approved. The saved rubric is fixed for student submissions.</p>{exam.warnings.length > 0 && <div className="notice"><ul>{exam.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></div>}{exam.questions.map(question => <article className="question" key={question.identifier}><div className="question-top"><h3>Question {question.identifier}</h3><span className="mark">{question.maximumMarks} marks</span></div><ExamText text={question.text} /><details><summary>Expected answer & marking guidance</summary><ExamText text={question.expectedAnswer} />{[...question.markingCriteria, ...question.acceptedAlternatives].map((text, i) => <ExamText key={i} text={text} />)}</details><div className="rubric-table rubric"><table><thead><tr><th>Criterion</th><th>Maximum</th><th>Expected evidence / key basis</th></tr></thead><tbody>{question.rubric?.map(criterion => <tr key={criterion.id}><td><ExamText text={criterion.description} /><small>{criterion.allocationBasis === 'inferred' ? 'AI-inferred allocation' : 'Supplied allocation'}</small></td><td>{criterion.maximumMarks}</td><td><ExamText text={criterion.expectedEvidence} /><ExamText text={criterion.keyAlignment} /></td></tr>)}</tbody></table></div></article>)}</section>;
+  return <section aria-label="Prepared questions and rubrics"><h2>Prepared questions & marking rubric</h2><p className="muted">Inferred allocations are AI-generated, not teacher-approved. The saved rubric is fixed for student submissions.</p>{exam.warnings.length > 0 && <div className="notice"><ul>{exam.warnings.map((warning, i) => <li key={i}>{warning}</li>)}</ul></div>}{exam.questions.map(question => <article className="question" key={question.identifier}><div className="question-top"><h3>{exam.blueprint?.nodes.find(node => node.id === question.identifier)?.label ?? `Question ${question.identifier}`}</h3><span className="mark">{question.maximumMarks} marks</span></div><ExamText text={question.text} /><details><summary>Expected answer & marking guidance</summary><ExamText text={question.expectedAnswer} />{exam.keyMappings?.filter(mapping => mapping.identifier === question.identifier).map(mapping => <p className="muted" key={mapping.identifier}>Answer-key pages {mapping.sourcePages.join(', ')} · {mapping.evidence}</p>)}{[...question.markingCriteria, ...question.acceptedAlternatives].map((text, i) => <ExamText key={i} text={text} />)}</details><div className="rubric-table rubric"><table><thead><tr><th>Criterion</th><th>Maximum</th><th>Expected evidence / key basis</th></tr></thead><tbody>{question.rubric?.map(criterion => <tr key={criterion.id}><td><ExamText text={criterion.description} /><small>{criterion.allocationBasis === 'inferred' ? 'AI-inferred allocation' : 'Supplied allocation'}</small></td><td>{criterion.maximumMarks}</td><td><ExamText text={criterion.expectedEvidence} /><ExamText text={criterion.keyAlignment} /></td></tr>)}</tbody></table></div></article>)}</section>;
 }
 export function FacultyPage({ facultyName = 'Faculty', onLogout = async () => { await request('/api/faculty/logout', { method: 'POST' }); window.location.assign('/faculty/login'); } }: { facultyName?: string; onLogout?: () => Promise<void> } = {}) {
   const [sourceExam, setSourceExam] = useState<PreparedExam | null>(null);
@@ -171,6 +176,7 @@ export function FacultyPage({ facultyName = 'Faculty', onLogout = async () => { 
   const [historyExam, setHistoryExam] = useState<PreparedExam | null>(null);
   const [storage, setStorage] = useState<{ totalBytes: number; availableBytes: number; usedBytes: number; unreadableRecords?: unknown[] } | null>(null);
   useEffect(() => { void request<{ storage: typeof storage }>('/api/storage').then(value => setStorage(value.storage)).catch(() => {}); }, []);
+  const [draft, setDraft] = useState<ExamBlueprint | null>(null);
   const [detail, setDetail] = useState<{ metadata: PreparedExam; specification: Exam } | null>(null); const [detailLoading, setDetailLoading] = useState('');
   const formRef = useRef<HTMLFormElement>(null);
   const refresh = async () => { try { setExams(await listExams()); setError(''); } catch (error) { setError(message(error)); } finally { setLoading(false); } };
@@ -185,7 +191,7 @@ export function FacultyPage({ facultyName = 'Faculty', onLogout = async () => { 
   };
   const showDetail = async (exam: PreparedExam) => {
     setDetailLoading(exam.id);
-    try { const value = await request<{ metadata: unknown; specification: unknown }>(`/api/exams/${exam.id}`); setDetail({ metadata: PreparedExamSchema.parse(value.metadata), specification: ExamSchema.parse(value.specification) }); }
+    try { if (exam.status !== 'ready') { const value = await request<{ blueprint: unknown }>(`/api/exams/${exam.id}/blueprint`); if (!value.blueprint) throw new Error('A validated blueprint is not available yet. Preparation files are retained.'); setDraft(BlueprintSchema.parse(value.blueprint)); return; } const value = await request<{ metadata: unknown; specification: unknown }>(`/api/exams/${exam.id}`); setDetail({ metadata: PreparedExamSchema.parse(value.metadata), specification: ExamSchema.parse(value.specification) }); }
     catch (error) { setError(message(error)); } finally { setDetailLoading(''); }
   };
   const copyLink = async (id: string) => {
@@ -207,7 +213,7 @@ export function FacultyPage({ facultyName = 'Faculty', onLogout = async () => { 
         <div className="faculty-search"><input type="search" aria-label="Search exams" placeholder="Search by exam name or ID…" value={search} onChange={event => setSearch(event.target.value)} /></div>
         <div className="faculty-exam-scroll" role="region" aria-label="Created exams" tabIndex={0}>
           {loading ? <p className="exam-empty">Loading exams…</p> : !exams.length ? <p className="exam-empty">No exams yet. Create your first exam using the form.</p> : !filtered.length ? <p className="exam-empty">No exams match your search.</p> : <table className="faculty-exam-table"><thead><tr><th>Exam</th><th>Status</th><th>Questions / Marks</th><th>Actions</th></tr></thead><tbody>{filtered.map(exam => <tr key={exam.id}><td><strong>{exam.name}</strong><span className="exam-row-meta">{exam.model === 'sol-ultrafast' ? 'Sol Ultrafast' : 'Sol'} · {new Date(exam.createdAt).toLocaleDateString()}</span><span className="exam-row-meta" title={exam.id}>ID {exam.id.slice(0, 8)}</span></td>
-            <td><span className={`mark ${exam.status !== 'ready' ? 'review' : ''}`}>{exam.status === 'ready' ? 'Ready' : exam.status === 'preparing' ? 'Preparing' : 'Failed'}</span>{exam.status === 'preparing' && <small className="exam-row-meta" role="status">Creating rubric…</small>}{exam.error && <small role="alert" className="exam-row-error">{exam.error.message}</small>}</td>
+            <td><span className={`mark ${exam.status !== 'ready' ? 'review' : ''}`}>{exam.status === 'ready' ? 'Ready' : exam.status === 'preparing' ? 'Preparing' : 'Failed'}</span>{exam.status === 'preparing' && <small className="exam-row-meta" role="status">{exam.preparationStage?.replaceAll('_', ' ') ?? 'Creating rubric…'}</small>}{exam.error && <small role="alert" className="exam-row-error">{exam.error.message}</small>}</td>
             <td>{exam.status === 'ready' ? <><strong>{exam.questionCount} / {exam.maximumMarks}</strong><span className="exam-row-meta">questions / marks{exam.requiredQuestionCount ? ` · ${exam.requiredQuestionCount} required` : ''}</span></> : <span className="muted">—</span>}</td>
             <td><div className="exam-row-actions"><button className="secondary history-action" onClick={() => setHistoryExam(exam)}>Submissions ({exam.submissionCount ?? 0})</button><ExamMoreMenu exam={exam} copied={copiedExam === exam.id} detailLoading={!!detailLoading} onCopy={() => { void copyLink(exam.id); }} onDetails={() => { void showDetail(exam); }} onManage={action => setManagement({ exam, action })} onSources={() => setSourceExam(exam)} />{copiedExam === exam.id && <small className="copy-feedback" role="status">Student link copied</small>}{exam.status === 'failed' && <button className="secondary retry-exam" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/exams/${exam.id}/prepare`, { method: 'POST' }); await refresh(); } catch (error) { setError(message(error)); } finally { setBusy(false); } }}>Retry preparation</button>}</div></td>
           </tr>)}</tbody></table>}
@@ -219,7 +225,7 @@ export function FacultyPage({ facultyName = 'Faculty', onLogout = async () => { 
     {historyExam && <SubmissionHistory exam={historyExam} onClose={() => { setHistoryExam(null); void refresh(); }} />}
     {storage && <p className={`storage-usage ${storage.availableBytes < 50 * 1024 * 1024 ? 'storage-low' : ''}`}>Server disk: {(storage.usedBytes / 1024 / 1024).toFixed(0)} MB used · {(storage.availableBytes / 1024 / 1024).toFixed(0)} MB available. Saved submissions are not automatically deleted.</p>}
     {!!storage?.unreadableRecords?.length && <p className="error" role="alert">{storage.unreadableRecords.length} saved submission records could not be loaded. Their files were preserved on disk. Contact the administrator before making changes.</p>}
-    {detail && <RubricModal detail={detail} onClose={() => setDetail(null)} onModelSaved={metadata => { setDetail(current => current?.metadata.id === metadata.id ? { ...current, metadata } : current); setExams(current => current.map(exam => exam.id === metadata.id ? { ...metadata, submissionCount: exam.submissionCount } : exam)); }} />}
+    {draft && <DraftBlueprintModal blueprint={draft} onClose={() => setDraft(null)} />}{detail && <RubricModal detail={detail} onClose={() => setDetail(null)} onModelSaved={metadata => { setDetail(current => current?.metadata.id === metadata.id ? { ...current, metadata } : current); setExams(current => current.map(exam => exam.id === metadata.id ? { ...metadata, submissionCount: exam.submissionCount } : exam)); }} />}
   </Shell>;
 }
 export function studentExamIdFromPath(pathname: string) {
