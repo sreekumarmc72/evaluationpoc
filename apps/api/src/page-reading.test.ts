@@ -34,6 +34,17 @@ function harness(count = 5, alter?: (request: any, value: any) => unknown) {
 }
 
 describe('Literal page-reading checks', () => {
+  it.each(['', '   '])('preserves an answer with blank label %j as an unnumbered continuation', identifier => {
+    const page = reading(11); const value = structured(page); value.segments[0].identifier = identifier;
+    expect(assemblePage(page, value)[0]).toMatchObject({ identifier: null, text: page.blocks[0].text, sourcePages: [11], withdrawn: false });
+    expect(value.segments[0].identifier).toBe(identifier);
+  });
+  it('distinguishes missing sources from unsupported whole-answer cancellation', () => {
+    const page = reading(11); const missing = structured(page); missing.segments[0].sources = [];
+    expect(() => assemblePage(page, missing)).toThrow('Page 11, answer 1: missing source references.');
+    const cancelled = structured(page); cancelled.segments[0].withdrawn = true;
+    expect(() => assemblePage(page, cancelled)).toThrow('Page 11, answer 1: whole-answer cancellation lacks evidence.');
+  });
   it('assembles exact source quotes without rewriting numbers', () => {
     const page = reading(); const value = structured(page); expect(assemblePage(page, value)[0].text).toBe('1(a) Written amount 100');
     value.segments[0].sources[0].quote = '1(a) Written amount 1000'; expect(() => assemblePage(page, value)).toThrow(/exact/);

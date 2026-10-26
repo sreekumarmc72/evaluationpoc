@@ -75,7 +75,10 @@ export function assemblePage(page: PageReading, value: unknown): Transcription['
   const result = parsed.data; const blocks = effectivePageBlocks(page).filter(b => b.kind === 'answer'); const byId = new Map(blocks.map(b => [b.id, b]));
   const used = new Map<string, Array<[number, number]>>(); let priorBlock = -1; let priorEnd = 0;
   const answers = result.segments.map((s, index) => {
-    if (!s.sources.length || s.identifier !== null && !s.identifier.trim() || s.withdrawn && !s.withdrawalEvidence.trim()) throw new ReadingQualityError(`Page ${page.page}: unsupported answer label, source or cancellation.`);
+    // Blank labels carry no association evidence, just like null. Preserve the
+    // source text and let the later mapping stage resolve the continuation.
+    if (!s.sources.length) throw new ReadingQualityError(`Page ${page.page}, answer ${index + 1}: missing source references.`);
+    if (s.withdrawn && !s.withdrawalEvidence.trim()) throw new ReadingQualityError(`Page ${page.page}, answer ${index + 1}: whole-answer cancellation lacks evidence.`);
     for (const source of s.sources) {
       const b = byId.get(source.blockId); const at = b?.text.indexOf(source.quote) ?? -1; const order = blocks.findIndex(b => b.id === source.blockId);
       if (!b || !source.quote.trim() || at < 0 || b.text.indexOf(source.quote, at + 1) >= 0 || order < priorBlock || order === priorBlock && at < priorEnd) throw new ReadingQualityError(`Page ${page.page}: source quotes must be exact, unique and in reading order.`);
