@@ -46,4 +46,16 @@ describe('Evaluation PDF reports', () => {
     expect(doc.getPageCount()).toBeGreaterThan(2); expect(doc.getPages()[0].getWidth()).toBeCloseTo(595.28);
     expect(doc.getTitle()).toBe('Accounting report — Evaluation report');
   });
+  it('paginates a rubric row longer than a page without changing its assessment data', async () => {
+    const run = fixture(); const longEvidence = 'Working amount ₹16,200 remains unchanged. '.repeat(250);
+    run.exam!.questions[0].rubric![0].expectedEvidence = longEvidence + 'Expected evidence end.';
+    run.results[0].criterionAwards![0].evidence = longEvidence + 'Student evidence end.';
+    run.exam!.questions[0].identifier = run.results[0].identifier = 'Very long question identifier '.repeat(6);
+    const before = JSON.stringify(run);
+    const bytes = await createEvaluationReport(run, 'Detailed rubric report');
+    const doc = await PDFDocument.load(bytes);
+    expect(doc.getPageCount()).toBeGreaterThan(4);
+    expect(JSON.stringify(run)).toBe(before);
+    expect(reportContent(run, 'Exam').questions[0].criteria[0].evidence).toBe(longEvidence + 'Student evidence end.');
+  });
 });
