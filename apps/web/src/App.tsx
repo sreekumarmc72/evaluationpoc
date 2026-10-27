@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import { SectionScores } from './OptionalSections';
+import { ReportDownload } from './ReportDownload';
 import { RunSchema, uploadFields, selectableModels, modelLabels, isTerminal, displayedTotals, type EvaluationRun, type UploadField, type QuestionResult } from '@poc/shared';
 
 type RetainedExam = Record<'questionPaper' | 'answerKey', { name: string; size: number; pages: number }>;
@@ -60,7 +61,7 @@ export function Results({ run, onAdjust }: { run: EvaluationRun; onAdjust?: (id:
   const noneFinalised = !!totals && totals.totalMarks === null && run.results.length > 0 && (contributing.length === 0 || contributing.every(r => r.marks === null && !r.teacherAdjustment));
   const provisional = totals?.totalMarks === null && totals.provisionalTotal != null;
   return <section aria-label="Evaluation results" className="results">
-    {run.stage === 'completed' && totals && <div className="section-heading"><h2>Evaluation report</h2><a className="secondary" href={`/api/evaluations/${run.id}/report.pdf`} download>Download PDF</a></div>}
+    {run.stage === 'completed' && totals && <ReportDownload key={run.id} runId={run.id} />}
     {totals && <div className="score-banner">
       <div><span className="eyebrow">{provisional ? 'PROVISIONAL MARKS · REVIEW RECOMMENDED' : totals.totalMarks === null ? 'GRADED SUBTOTAL' : run.results.some(r => r.teacherAdjustment) ? 'REVIEWED MARKS' : 'AI-PROPOSED MARKS'}</span>
         <div className="score">{noneFinalised && !provisional ? 'No marks finalised' : <>{number(totals.totalMarks ?? (provisional ? totals.provisionalTotal! : totals.gradedSubtotal))} <span>/ {number(totals.maximumMarks)}</span></>}</div>
