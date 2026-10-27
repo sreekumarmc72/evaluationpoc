@@ -13,6 +13,12 @@ const run = (pending = false): EvaluationRun => ({
 });
 afterEach(() => { cleanup(); sessionStorage.clear(); vi.unstubAllGlobals(); });
 describe('Results UI', () => {
+  it('offers the saved PDF download only after evaluation completes', () => {
+    const value = run(); const { rerender } = render(<Results run={value} />);
+    expect(screen.getByRole('link', { name: 'Download PDF' })).toHaveAttribute('href', '/api/evaluations/test/report.pdf');
+    rerender(<Results run={{ ...value, stage: 'failed' }} />);
+    expect(screen.queryByRole('link', { name: 'Download PDF' })).not.toBeInTheDocument();
+  });
   it('shows section selection and excludes unused alternatives from the displayed total', () => {
     const value = run();
     value.results[0].selectionStatus = 'not_selected'; value.results[0].selectionNote = 'Optional alternative not selected — no deduction for this question.';

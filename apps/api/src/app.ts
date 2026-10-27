@@ -13,6 +13,7 @@ import { examFields, type RetainedExamStore } from './retained-exam.js';
 import type { ExamCatalog } from './exam-catalog.js';
 import { registerExamRoutes } from './exam-routes.js';
 import { createFacultyAuth } from './access.js';
+import { createEvaluationReport } from './evaluation-report.js';
 
 type Options = { store: RunStore; retainedExam?: RetainedExamStore; examCatalog?: ExamCatalog; model: EvaluationModel; modelId: string; models?: Record<string, EvaluationModel>; configured: boolean; maxBytes: number; maxPages: number; retentionMs: number; appOrigin?: string; webRoot?: string; facultyPassword?: string; facultyUser?: string; facultyDisplayName?: string; requireFacultyAuth?: boolean };
 export function createApp(options: Options) {
@@ -82,6 +83,16 @@ export function createApp(options: Options) {
         } catch (error) { options.store.release(); next(error); }
       })();
     });
+  });
+  app.get('/api/evaluations/:id/report.pdf', (req, res, next) => {
+    void (async () => {
+      const run = options.store.get(req.params.id);
+      if (!run) throw new AppError('NOT_FOUND', 'Evaluation not found.', 404);
+      let name = 'Answer sheet evaluation';
+      if (run.examId && options.examCatalog) { try { name = options.examCatalog.get(run.examId).metadata.name; } catch { /* Archived exams retain their saved evaluation. */ } }
+      const bytes = await createEvaluationReport(structuredClone(run), name);
+      res.type('application/pdf').set('Content-Disposition', `attachment; filename="evaluation-${run.id.replace(/[^a-zA-Z0-9-]/g, '')}.pdf"`).send(bytes);
+    })().catch(next);
   });
   app.get('/api/evaluations/:id', (req, res, next) => {
     const run = options.store.get(req.params.id);
